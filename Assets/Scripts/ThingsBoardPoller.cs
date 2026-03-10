@@ -7,10 +7,10 @@ using UnityEngine.Networking;
 public class ThingsBoardPoller : MonoBehaviour
 {
     [Header("ThingsBoard")]
-    [SerializeField] private string baseUrl = "http://192.168.19.32:8080";
+    [SerializeField] private string baseUrl = "http://IP:port";
     [SerializeField] private string username = "sysadmin@thingsboard.org";
     [SerializeField] private string password = "sysadmin";
-    [SerializeField] private string deviceId = "OVDJE_STAVI_DEVICE_ID";
+    [SerializeField] private string deviceId = "DEVICE_ID";
 
     [Header("Polling")]
     [SerializeField] private float pollIntervalSeconds = 1f;
