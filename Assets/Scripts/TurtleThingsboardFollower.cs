@@ -1,5 +1,7 @@
 using System;
 using System.Collections;
+using System.Globalization;
+using System.Text;
 using System.Text.RegularExpressions;
 using UnityEngine;
 using UnityEngine.Networking;
@@ -29,6 +31,11 @@ public class TurtleThingsBoardFollower : MonoBehaviour
     private Vector3 lastPosition;
     private bool hasFirstPosition = false;
 
+    // Početna ROS pozicija turtlesima postaje lokalno ishodište (0,0)
+    private Vector2 rosOrigin;
+    private Vector3 unityOrigin;
+    private bool originInitialized = false;
+
     [Serializable]
     private class LoginRequest
     {
@@ -45,6 +52,7 @@ public class TurtleThingsBoardFollower : MonoBehaviour
 
     private void Start()
     {
+        unityOrigin = transform.position;
         targetPosition = transform.position;
         lastPosition = transform.position;
         StartCoroutine(MainLoop());
@@ -110,7 +118,7 @@ public class TurtleThingsBoardFollower : MonoBehaviour
         };
 
         string json = JsonUtility.ToJson(loginData);
-        byte[] bodyRaw = System.Text.Encoding.UTF8.GetBytes(json);
+        byte[] bodyRaw = Encoding.UTF8.GetBytes(json);
 
         using UnityWebRequest request = new UnityWebRequest(url, "POST");
         request.uploadHandler = new UploadHandlerRaw(bodyRaw);
@@ -154,13 +162,25 @@ public class TurtleThingsBoardFollower : MonoBehaviour
         string yString = ExtractLatestValue(rawJson, "y");
         string tempString = ExtractLatestValue(rawJson, "temperature");
 
-        if (float.TryParse(xString, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float rosX) &&
-            float.TryParse(yString, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float rosY))
+        if (float.TryParse(xString, NumberStyles.Float, CultureInfo.InvariantCulture, out float rosX) &&
+            float.TryParse(yString, NumberStyles.Float, CultureInfo.InvariantCulture, out float rosY))
         {
+            // Prva ROS pozicija postaje ishodište lokalnog koordinatnog sustava
+            if (!originInitialized)
+            {
+                rosOrigin = new Vector2(rosX, rosY);
+                originInitialized = true;
+
+                Debug.Log($"ROS origin postavljen na x={rosOrigin.x}, y={rosOrigin.y}");
+            }
+
+            float relativeX = (rosX - rosOrigin.x) * positionScale;
+            float relativeY = (rosY - rosOrigin.y) * positionScale;
+
             Vector3 newTarget = new Vector3(
-                rosX * positionScale,
+                unityOrigin.x + relativeX,
                 unityHeight,
-                rosY * positionScale
+                unityOrigin.z + relativeY
             );
 
             if (!hasFirstPosition)
@@ -176,7 +196,15 @@ public class TurtleThingsBoardFollower : MonoBehaviour
                 targetPosition = newTarget;
             }
 
-            Debug.Log($"ROS/ThingsBoard -> Unity | x={rosX} y={rosY} temp={tempString}");
+            Debug.Log(
+                $"ROS/ThingsBoard -> Unity | " +
+                $"x={rosX} y={rosY} temp={tempString} | " +
+                $"relX={relativeX} relY={relativeY}"
+            );
+        }
+        else
+        {
+            Debug.LogWarning($"Ne mogu parsirati x/y vrijednosti. raw x='{xString}', y='{yString}'");
         }
     }
 
