@@ -8,7 +8,7 @@ public class TurtleMovement : MonoBehaviour
     [Header("Movement")]
     [SerializeField] private float moveSpeed = 2f;
     [SerializeField] private float runMultiplier = 1.8f;
-    [SerializeField] private float backwardMultiplier = 0.5f;
+    [SerializeField] private float backwardMultiplier = 2f;
     [SerializeField] private float rotationSpeed = 120f;
 
     private Animator animator;
