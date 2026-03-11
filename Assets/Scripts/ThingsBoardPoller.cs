@@ -8,8 +8,8 @@ public class ThingsBoardPoller : MonoBehaviour
 {
     [Header("ThingsBoard")]
     [SerializeField] private string baseUrl = "http://IP:port";
-    [SerializeField] private string username = "sysadmin@thingsboard.org";
-    [SerializeField] private string password = "sysadmin";
+    [SerializeField] private string username = "tenant@thingsboard.org";
+    [SerializeField] private string password = "tenant";
     [SerializeField] private string deviceId = "DEVICE_ID";
 
     [Header("Polling")]

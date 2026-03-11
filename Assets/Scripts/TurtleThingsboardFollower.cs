@@ -9,7 +9,7 @@ using UnityEngine.Networking;
 public class TurtleThingsBoardFollower : MonoBehaviour
 {
     [Header("ThingsBoard")]
-    [SerializeField] private string baseUrl = "http://192.168.19.32:8080";
+    [SerializeField] private string baseUrl = "http://IP:port";
     [SerializeField] private string username = "tenant@thingsboard.org";
     [SerializeField] private string password = "tenant";
     [SerializeField] private string deviceId = "0f757400-1897-11f1-a1d2-e5a5a57c1784";
@@ -24,6 +24,9 @@ public class TurtleThingsBoardFollower : MonoBehaviour
 
     [Header("Polling")]
     [SerializeField] private float pollIntervalSeconds = 1f;
+
+    [Header("Heatmap")]
+    [SerializeField] private DiscreteHeatmap heatmap;
 
     private string jwtToken;
 
@@ -183,17 +186,45 @@ public class TurtleThingsBoardFollower : MonoBehaviour
                 unityOrigin.z + relativeY
             );
 
+            float.TryParse(
+                tempString,
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture,
+                out float temperature
+            );
+
+            // Spremi prethodni target prije ažuriranja, da možemo obojati cijeli segment
+            Vector3 previousTarget = targetPosition;
+
             if (!hasFirstPosition)
             {
                 transform.position = newTarget;
                 targetPosition = newTarget;
                 lastPosition = newTarget;
                 hasFirstPosition = true;
+
+                if (heatmap != null)
+                {
+                    heatmap.PaintAtWorldPosition(newTarget, temperature);
+                }
+                else
+                {
+                    Debug.LogWarning("Heatmap referenca nije postavljena na TurtleThingsBoardFollower.");
+                }
             }
             else
             {
                 lastPosition = targetPosition;
                 targetPosition = newTarget;
+
+                if (heatmap != null)
+                {
+                    heatmap.PaintAlongPath(previousTarget, newTarget, temperature);
+                }
+                else
+                {
+                    Debug.LogWarning("Heatmap referenca nije postavljena na TurtleThingsBoardFollower.");
+                }
             }
 
             Debug.Log(
