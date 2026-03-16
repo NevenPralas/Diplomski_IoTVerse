@@ -26,7 +26,7 @@ public class TurtleThingsBoardFollower : MonoBehaviour
     [SerializeField] private float pollIntervalSeconds = 1f;
 
     [Header("Heatmap")]
-    [SerializeField] private DiscreteHeatmap heatmap;
+    [SerializeField] private ShaderGridHeatmap heatmap;
 
     private string jwtToken;
 
@@ -34,7 +34,6 @@ public class TurtleThingsBoardFollower : MonoBehaviour
     private Vector3 lastPosition;
     private bool hasFirstPosition = false;
 
-    // Početna ROS pozicija turtlesima postaje lokalno ishodište (0,0)
     private Vector2 rosOrigin;
     private Vector3 unityOrigin;
     private bool originInitialized = false;
@@ -168,7 +167,6 @@ public class TurtleThingsBoardFollower : MonoBehaviour
         if (float.TryParse(xString, NumberStyles.Float, CultureInfo.InvariantCulture, out float rosX) &&
             float.TryParse(yString, NumberStyles.Float, CultureInfo.InvariantCulture, out float rosY))
         {
-            // Prva ROS pozicija postaje ishodište lokalnog koordinatnog sustava
             if (!originInitialized)
             {
                 rosOrigin = new Vector2(rosX, rosY);
@@ -193,7 +191,6 @@ public class TurtleThingsBoardFollower : MonoBehaviour
                 out float temperature
             );
 
-            // Spremi prethodni target prije ažuriranja, da možemo obojati cijeli segment
             Vector3 previousTarget = targetPosition;
 
             if (!hasFirstPosition)
