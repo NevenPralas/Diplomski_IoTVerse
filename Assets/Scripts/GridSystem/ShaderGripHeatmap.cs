@@ -138,7 +138,7 @@ public class ShaderGridHeatmap : MonoBehaviour
             return;
 
         Color color = GetTemperatureColor(temperature);
-        heatmapTexture.SetPixel(gridX, gridY, color);
+        heatmapTexture.SetPixel(gridSizeX - 1 - gridX, gridSizeY - 1 - gridY, color);
     }
 
     public bool TryGetCellIndex(Vector3 worldPosition, out int gridX, out int gridY)
