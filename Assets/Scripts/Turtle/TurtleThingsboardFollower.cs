@@ -14,9 +14,27 @@ public class TurtleThingsBoardFollower : MonoBehaviour
     [SerializeField] private string password = "tenant";
     [SerializeField] private string deviceId = "0f757400-1897-11f1-a1d2-e5a5a57c1784";
 
-    [Header("Mapping")]
+    [Header("ROS Bounds (turtlesim)")]
+    [SerializeField] private float rosMinX = 0f;
+    [SerializeField] private float rosMaxX = 11f;
+    [SerializeField] private float rosMinY = 0f;
+    [SerializeField] private float rosMaxY = 11f;
+
+    [Header("ROS Reference -> Unity Center")]
+    [SerializeField] private float rosReferenceX = 5.544445f;
+    [SerializeField] private float rosReferenceY = 5.544445f;
+    [SerializeField] private float unityCenterX = 0f;
+    [SerializeField] private float unityCenterZ = 0f;
+
+    [Header("Unity Bounds")]
+    [SerializeField] private float unityMinX = -4f;
+    [SerializeField] private float unityMaxX = 4f;
+    [SerializeField] private float unityMinZ = -2f;
+    [SerializeField] private float unityMaxZ = 2f;
     [SerializeField] private float unityHeight = 0.5f;
-    [SerializeField] private float positionScale = 1.0f;
+    [SerializeField] private float wallPadding = 0.15f;
+
+    [Header("Movement")]
     [SerializeField] private bool smoothMovement = true;
     [SerializeField] private float smoothSpeed = 5f;
     [SerializeField] private bool rotateTowardsMovement = true;
@@ -29,14 +47,9 @@ public class TurtleThingsBoardFollower : MonoBehaviour
     [SerializeField] private ShaderGridHeatmap heatmap;
 
     private string jwtToken;
-
     private Vector3 targetPosition;
     private Vector3 lastPosition;
     private bool hasFirstPosition = false;
-
-    private Vector2 rosOrigin;
-    private Vector3 unityOrigin;
-    private bool originInitialized = false;
 
     [Serializable]
     private class LoginRequest
@@ -54,9 +67,15 @@ public class TurtleThingsBoardFollower : MonoBehaviour
 
     private void Start()
     {
-        unityOrigin = transform.position;
-        targetPosition = transform.position;
-        lastPosition = transform.position;
+        Vector3 startPos = transform.position;
+        startPos.x = unityCenterX;
+        startPos.y = unityHeight;
+        startPos.z = unityCenterZ;
+
+        transform.position = startPos;
+        targetPosition = startPos;
+        lastPosition = startPos;
+
         StartCoroutine(MainLoop());
     }
 
@@ -167,22 +186,28 @@ public class TurtleThingsBoardFollower : MonoBehaviour
         if (float.TryParse(xString, NumberStyles.Float, CultureInfo.InvariantCulture, out float rosX) &&
             float.TryParse(yString, NumberStyles.Float, CultureInfo.InvariantCulture, out float rosY))
         {
-            if (!originInitialized)
-            {
-                rosOrigin = new Vector2(rosX, rosY);
-                originInitialized = true;
-
-                Debug.Log($"ROS origin postavljen na x={rosOrigin.x}, y={rosOrigin.y}");
-            }
-
-            float relativeX = (rosX - rosOrigin.x) * positionScale;
-            float relativeY = (rosY - rosOrigin.y) * positionScale;
-
-            Vector3 newTarget = new Vector3(
-                unityOrigin.x + relativeX,
-                unityHeight,
-                unityOrigin.z + relativeY
+            float mappedX = MapAroundReference(
+                rosX,
+                rosMinX,
+                rosMaxX,
+                rosReferenceX,
+                unityMinX + wallPadding,
+                unityMaxX - wallPadding,
+                unityCenterX
             );
+
+            float mappedZ = MapAroundReference(
+                rosY,
+                rosMinY,
+                rosMaxY,
+                rosReferenceY,
+                unityMinZ + wallPadding,
+                unityMaxZ - wallPadding,
+                unityCenterZ
+            );
+
+            Vector3 newTarget = new Vector3(mappedX, unityHeight, mappedZ);
+            newTarget = ClampToRoom(newTarget);
 
             float.TryParse(
                 tempString,
@@ -201,13 +226,9 @@ public class TurtleThingsBoardFollower : MonoBehaviour
                 hasFirstPosition = true;
 
                 if (heatmap != null)
-                {
                     heatmap.PaintAtWorldPosition(newTarget, temperature);
-                }
                 else
-                {
                     Debug.LogWarning("Heatmap referenca nije postavljena na TurtleThingsBoardFollower.");
-                }
             }
             else
             {
@@ -215,25 +236,59 @@ public class TurtleThingsBoardFollower : MonoBehaviour
                 targetPosition = newTarget;
 
                 if (heatmap != null)
-                {
                     heatmap.PaintAlongPath(previousTarget, newTarget, temperature);
-                }
                 else
-                {
                     Debug.LogWarning("Heatmap referenca nije postavljena na TurtleThingsBoardFollower.");
-                }
             }
 
             Debug.Log(
-                $"ROS/ThingsBoard -> Unity | " +
-                $"x={rosX} y={rosY} temp={tempString} | " +
-                $"relX={relativeX} relY={relativeY}"
+                $"ROS -> Unity | rosX={rosX:F3}, rosY={rosY:F3}, temp={tempString} | " +
+                $"unityX={newTarget.x:F3}, unityZ={newTarget.z:F3}"
             );
         }
         else
         {
             Debug.LogWarning($"Ne mogu parsirati x/y vrijednosti. raw x='{xString}', y='{yString}'");
         }
+    }
+
+    private float MapAroundReference(
+        float value,
+        float rosMin,
+        float rosMax,
+        float rosReference,
+        float unityMin,
+        float unityMax,
+        float unityCenter)
+    {
+        value = Mathf.Clamp(value, rosMin, rosMax);
+
+        if (value >= rosReference)
+        {
+            float rosRangeRight = rosMax - rosReference;
+            if (Mathf.Approximately(rosRangeRight, 0f))
+                return unityCenter;
+
+            float t = (value - rosReference) / rosRangeRight;
+            return Mathf.Lerp(unityCenter, unityMax, t);
+        }
+        else
+        {
+            float rosRangeLeft = rosReference - rosMin;
+            if (Mathf.Approximately(rosRangeLeft, 0f))
+                return unityCenter;
+
+            float t = (rosReference - value) / rosRangeLeft;
+            return Mathf.Lerp(unityCenter, unityMin, t);
+        }
+    }
+
+    private Vector3 ClampToRoom(Vector3 pos)
+    {
+        pos.x = Mathf.Clamp(pos.x, unityMinX + wallPadding, unityMaxX - wallPadding);
+        pos.z = Mathf.Clamp(pos.z, unityMinZ + wallPadding, unityMaxZ - wallPadding);
+        pos.y = unityHeight;
+        return pos;
     }
 
     private string ExtractLatestValue(string json, string key)
@@ -245,5 +300,27 @@ public class TurtleThingsBoardFollower : MonoBehaviour
             return match.Groups[1].Value;
 
         return "0";
+    }
+
+    private void OnDrawGizmosSelected()
+    {
+        Gizmos.color = Color.green;
+
+        Vector3 center = new Vector3(
+            (unityMinX + unityMaxX) * 0.5f,
+            unityHeight,
+            (unityMinZ + unityMaxZ) * 0.5f
+        );
+
+        Vector3 size = new Vector3(
+            Mathf.Abs(unityMaxX - unityMinX),
+            0.05f,
+            Mathf.Abs(unityMaxZ - unityMinZ)
+        );
+
+        Gizmos.DrawWireCube(center, size);
+
+        Gizmos.color = Color.yellow;
+        Gizmos.DrawSphere(new Vector3(unityCenterX, unityHeight, unityCenterZ), 0.12f);
     }
 }
