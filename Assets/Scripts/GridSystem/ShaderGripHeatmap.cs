@@ -1,4 +1,5 @@
-﻿using UnityEngine;
+﻿using System;
+using UnityEngine;
 
 [RequireComponent(typeof(Renderer))]
 public class ShaderGridHeatmap : MonoBehaviour
@@ -24,6 +25,14 @@ public class ShaderGridHeatmap : MonoBehaviour
     [SerializeField] private float minTemperature = 18f;
     [SerializeField] private float maxTemperature = 22f;
 
+    [Header("Cell Particles")]
+    [SerializeField] private HeatmapCellParticles cellParticles;
+
+    [Header("Debug / Fake Preview")]
+    [SerializeField] private bool generateRandomCellsOnStart = false;
+    [SerializeField] private int randomCellsCount = 12;
+    [SerializeField] private bool clearBeforeRandomFill = true;
+
     private Texture2D heatmapTexture;
     private Material runtimeMaterial;
 
@@ -38,13 +47,8 @@ public class ShaderGridHeatmap : MonoBehaviour
 
         InitializeHeatmap();
 
-       /* Debug.Log("ShaderGridHeatmap Awake radi");
-
-        PaintAtWorldPosition(new Vector3(0f, 0f, 0f), 18f);
-        PaintAtWorldPosition(new Vector3(1f, 0f, 1f), 20f);
-        PaintAtWorldPosition(new Vector3(2f, 0f, 2f), 22f);
-
-        Debug.Log("Test boje upisane u heatmap teksturu"); */
+        if (generateRandomCellsOnStart)
+            PaintRandomCells(randomCellsCount, clearBeforeRandomFill);
     }
 
 #if UNITY_EDITOR
@@ -57,6 +61,9 @@ public class ShaderGridHeatmap : MonoBehaviour
             targetRenderer = GetComponent<Renderer>();
 
         InitializeHeatmap();
+
+        if (generateRandomCellsOnStart)
+            PaintRandomCells(randomCellsCount, clearBeforeRandomFill);
     }
 #endif
 
@@ -79,12 +86,8 @@ public class ShaderGridHeatmap : MonoBehaviour
         ClearTexture();
 
         runtimeMaterial = targetRenderer.material;
-
         runtimeMaterial.SetTexture(heatmapTextureProperty, heatmapTexture);
 
-        // Dinamičko usklađivanje sa shader gridom:
-        // ako je baseline 10x10 kad je Size = 1,1
-        // onda za 20x20 šaljemo Size = 2,2
         float shaderSizeX = gridSizeX / baselineGridX;
         float shaderSizeY = gridSizeY / baselineGridY;
 
@@ -132,6 +135,25 @@ public class ShaderGridHeatmap : MonoBehaviour
             ApplyTexture();
     }
 
+    public void PaintRandomCells(int count, bool clearFirst = true)
+    {
+        if (clearFirst)
+            ClearHeatmap();
+
+        int safeCount = Mathf.Clamp(count, 1, gridSizeX * gridSizeY);
+
+        for (int i = 0; i < safeCount; i++)
+        {
+            int gridX = UnityEngine.Random.Range(0, gridSizeX);
+            int gridY = UnityEngine.Random.Range(0, gridSizeY);
+            float temperature = UnityEngine.Random.Range(minTemperature, maxTemperature);
+
+            PaintCell(gridX, gridY, temperature);
+        }
+
+        ApplyTexture();
+    }
+
     private void PaintCell(int gridX, int gridY, float temperature)
     {
         if (gridX < 0 || gridX >= gridSizeX || gridY < 0 || gridY >= gridSizeY)
@@ -139,6 +161,9 @@ public class ShaderGridHeatmap : MonoBehaviour
 
         Color color = GetTemperatureColor(temperature);
         heatmapTexture.SetPixel(gridSizeX - 1 - gridX, gridSizeY - 1 - gridY, color);
+
+        if (cellParticles != null)
+            cellParticles.ShowOrUpdateCellParticle(gridX, gridY, temperature);
     }
 
     public bool TryGetCellIndex(Vector3 worldPosition, out int gridX, out int gridY)
@@ -153,6 +178,15 @@ public class ShaderGridHeatmap : MonoBehaviour
                gridY >= 0 && gridY < gridSizeY;
     }
 
+    public Vector3 GetCellCenterWorld(int gridX, int gridY)
+    {
+        float x = origin.x + (gridX + 0.5f) * cellWidth;
+        float z = origin.z + (gridY + 0.5f) * cellHeight;
+        float y = transform.position.y;
+
+        return new Vector3(x, y, z);
+    }
+
     private Color GetTemperatureColor(float temperature)
     {
         float t = Mathf.InverseLerp(minTemperature, maxTemperature, temperature);
@@ -165,11 +199,15 @@ public class ShaderGridHeatmap : MonoBehaviour
 
     private void ApplyTexture()
     {
-        heatmapTexture.Apply(false);
+        if (heatmapTexture != null)
+            heatmapTexture.Apply(false);
     }
 
     private void ClearTexture()
     {
+        if (heatmapTexture == null)
+            return;
+
         Color clear = new Color(0f, 0f, 0f, 0f);
 
         for (int x = 0; x < gridSizeX; x++)
@@ -186,5 +224,13 @@ public class ShaderGridHeatmap : MonoBehaviour
     public void ClearHeatmap()
     {
         ClearTexture();
+
+        if (cellParticles != null)
+            cellParticles.ClearAllParticles();
+    }
+
+    public Color GetColorForTemperature(float temperature)
+    {
+        return GetTemperatureColor(temperature);
     }
 }

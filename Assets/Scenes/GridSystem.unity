@@ -1468,6 +1468,7 @@ GameObject:
   - component: {fileID: 1415382486}
   - component: {fileID: 1415382490}
   - component: {fileID: 1415382491}
+  - component: {fileID: 1415382492}
   m_Layer: 0
   m_Name: Grid
   m_TagString: Untagged
@@ -1591,6 +1592,10 @@ MonoBehaviour:
   baselineGridY: 10
   minTemperature: 18
   maxTemperature: 22
+  cellParticles: {fileID: 1415382492}
+  generateRandomCellsOnStart: 1
+  randomCellsCount: 12
+  clearBeforeRandomFill: 1
 --- !u!114 &1415382491
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1673,6 +1678,27 @@ MonoBehaviour:
   m_Teleporting:
     m_PersistentCalls:
       m_Calls: []
+--- !u!114 &1415382492
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1415382485}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 952f1918b85895b47b407e613c573cf0, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::HeatmapCellParticles
+  heatmap: {fileID: 1415382490}
+  particlePrefab: {fileID: 9111834922114584225, guid: a05a82acab21b844a848706a6e30f53d, type: 3}
+  particlesParent: {fileID: 0}
+  verticalOffset: 0.03
+  minTemperature: 18
+  maxTemperature: 22
+  cellSpawnChance: 1
+  alphaMin: 0.04
+  alphaMax: 0.1
 --- !u!1001 &1575607747
 PrefabInstance:
   m_ObjectHideFlags: 0
