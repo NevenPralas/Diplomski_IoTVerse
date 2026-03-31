@@ -191,10 +191,18 @@ public class ShaderGridHeatmap : MonoBehaviour
     {
         float t = Mathf.InverseLerp(minTemperature, maxTemperature, temperature);
 
-        Color coldColor = new Color(1f, 0.65f, 0.15f, 0.85f);
-        Color hotColor = new Color(1f, 0.15f, 0.15f, 0.85f);
+        // Tri kontrolne tocke za ljepsi gradijent od originalna dva:
+        //   t=0.0  →  #D4621A  mat narancasta        (min temperatura)
+        //   t=0.5  →  #C03030  svjetlija mat crvena   (sredina)
+        //   t=1.0  →  #7A1010  tamna mat crvena       (max temperatura)
+        Color orange = new Color(0.831f, 0.384f, 0.102f, 0.85f);
+        Color midRed = new Color(0.753f, 0.188f, 0.188f, 0.85f);
+        Color darkRed = new Color(0.478f, 0.063f, 0.063f, 0.85f);
 
-        return Color.Lerp(coldColor, hotColor, t);
+        if (t <= 0.5f)
+            return Color.Lerp(orange, midRed, t / 0.5f);
+        else
+            return Color.Lerp(midRed, darkRed, (t - 0.5f) / 0.5f);
     }
 
     private void ApplyTexture()

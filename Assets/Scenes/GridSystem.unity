@@ -1594,7 +1594,7 @@ MonoBehaviour:
   minTemperature: 18
   maxTemperature: 22
   cellParticles: {fileID: 1415382492}
-  generateRandomCellsOnStart: 0
+  generateRandomCellsOnStart: 1
   randomCellsCount: 12
   clearBeforeRandomFill: 1
 --- !u!114 &1415382491
@@ -1715,8 +1715,8 @@ MonoBehaviour:
   heatmap: {fileID: 1415382490}
   nearFarInteractor: {fileID: 1575607749}
   cubeWidth: 0.5
-  cubeHeight: 2
-  cubeMaterial: {fileID: 0}
+  cubeHeight: 3.2
+  cubeMaterial: {fileID: 2100000, guid: 2215980e84cfe734a97550d24795c402, type: 2}
 --- !u!1001 &1575607747
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -1784,6 +1784,10 @@ PrefabInstance:
     - target: {fileID: 1883230248363655243, guid: f6336ac4ac8b4d34bc5072418cdc62a0, type: 3}
       propertyPath: m_SelectActionTrigger
       value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 3074471628601745017, guid: f6336ac4ac8b4d34bc5072418cdc62a0, type: 3}
+      propertyPath: m_CastDistance
+      value: 30
       objectReference: {fileID: 0}
     - target: {fileID: 8877177980677234388, guid: f6336ac4ac8b4d34bc5072418cdc62a0, type: 3}
       propertyPath: m_EnableFarCasting
@@ -2187,7 +2191,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8135023674665499069, guid: 58d0a4ac86f2348deb02f3880c71378e, type: 3}
       propertyPath: m_IsActive
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 8518324294302271954, guid: 58d0a4ac86f2348deb02f3880c71378e, type: 3}
       propertyPath: m_LocalPosition.x
