@@ -241,4 +241,14 @@ public class ShaderGridHeatmap : MonoBehaviour
     {
         return GetTemperatureColor(temperature);
     }
+
+    public float GetCellWidth()
+    {
+        return cellWidth;
+    }
+
+    public float GetCellHeight()
+    {
+        return cellHeight;
+    }
 }

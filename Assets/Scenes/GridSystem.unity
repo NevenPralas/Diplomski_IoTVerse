@@ -1585,8 +1585,8 @@ MonoBehaviour:
   targetRenderer: {fileID: 1415382487}
   heatmapTextureProperty: _HeatmapTex
   gridSizeProperty: _Size
-  gridSizeX: 20
-  gridSizeY: 20
+  gridSizeX: 30
+  gridSizeY: 30
   worldWidth: 10
   worldHeight: 10
   baselineGridX: 10
@@ -1714,8 +1714,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::SpaceTimeCubeManager
   heatmap: {fileID: 1415382490}
   nearFarInteractor: {fileID: 1575607749}
-  cubeWidth: 0.5
-  cubeHeight: 3.2
+  cubeHeight: 4
   cubeMaterial: {fileID: 2100000, guid: 2215980e84cfe734a97550d24795c402, type: 2}
 --- !u!1001 &1575607747
 PrefabInstance:

@@ -9,7 +9,6 @@ public class SpaceTimeCubeManager : MonoBehaviour
     [SerializeField] private NearFarInteractor nearFarInteractor;
 
     [Header("Cube Settings")]
-    [SerializeField] private float cubeWidth = 0.1f;
     [SerializeField] private float cubeHeight = 0.5f;
     [SerializeField] private Material cubeMaterial;
 
@@ -32,7 +31,6 @@ public class SpaceTimeCubeManager : MonoBehaviour
 
     private void Update()
     {
-        // Provjeri je li gumb A upravo pritisnut (samo u trenutku pritiska, ne dok se drži)
         if (buttonA.WasPressedThisFrame())
         {
             TrySelectCell();
@@ -47,18 +45,15 @@ public class SpaceTimeCubeManager : MonoBehaviour
             return;
         }
 
-        // Uzmi poziciju i smjer raycasta iz NearFarInteractora
         Vector3 rayOrigin = nearFarInteractor.transform.position;
         Vector3 rayDirection = nearFarInteractor.transform.forward;
 
         Debug.DrawRay(rayOrigin, rayDirection * 10f, Color.red, 1f);
 
-        // Bacamo fizički raycast prema gridu
         if (Physics.Raycast(rayOrigin, rayDirection, out RaycastHit hit, 20f))
         {
             Debug.Log($"Raycast pogodio: {hit.collider.gameObject.name} na poziciji {hit.point}");
 
-            // Provjeri je li pogođena točka unutar heatmap grida
             if (heatmap.TryGetCellIndex(hit.point, out int gridX, out int gridY))
             {
                 Debug.Log($"Pogođena ćelija: ({gridX}, {gridY})");
@@ -79,7 +74,6 @@ public class SpaceTimeCubeManager : MonoBehaviour
     {
         Vector2Int newCell = new Vector2Int(gridX, gridY);
 
-        // Ako kliknemo na istu ćeliju — makni stupac
         if (activeCell == newCell && activeColumn != null)
         {
             Destroy(activeColumn);
@@ -89,17 +83,18 @@ public class SpaceTimeCubeManager : MonoBehaviour
             return;
         }
 
-        // Ukloni stari stupac ako postoji
         if (activeColumn != null)
         {
             Destroy(activeColumn);
             activeColumn = null;
         }
 
-        // Stvori novi stupac
+        float cellW = heatmap.GetCellWidth();
+        float cellD = heatmap.GetCellHeight();
+
         Vector3 cellCenter = heatmap.GetCellCenterWorld(gridX, gridY);
 
-        // Stupac raste prema gore od površine grida
+        // Pozicija: dno stupca na površini grida, raste prema gore
         Vector3 columnPosition = new Vector3(
             cellCenter.x,
             cellCenter.y + cubeHeight / 2f,
@@ -109,24 +104,21 @@ public class SpaceTimeCubeManager : MonoBehaviour
         activeColumn = GameObject.CreatePrimitive(PrimitiveType.Cube);
         activeColumn.name = $"SpaceTimeColumn_{gridX}_{gridY}";
         activeColumn.transform.position = columnPosition;
-        activeColumn.transform.localScale = new Vector3(cubeWidth, cubeHeight, cubeWidth);
+        activeColumn.transform.localScale = new Vector3(cellW, cubeHeight, cellD);
 
-        // Makni collider sa stupca da ne ometa buduće raycastove prema gridu
         Collider col = activeColumn.GetComponent<Collider>();
         if (col != null) Destroy(col);
 
-        // Postavi materijal ako je dodijeljen
         if (cubeMaterial != null)
-        {
             activeColumn.GetComponent<Renderer>().material = cubeMaterial;
-        }
         else
-        {
-            // Defaultni žuti materijal za testiranje
             activeColumn.GetComponent<Renderer>().material.color = Color.yellow;
-        }
+
+        // Dodaj animator i pokreni ga s točnim dimenzijama
+        ColumnAnimator animator = activeColumn.AddComponent<ColumnAnimator>();
+        animator.Init(cellW, cubeHeight, cellD);
 
         activeCell = newCell;
-        Debug.Log($"Stupac stvoren na ćeliji ({gridX}, {gridY}) pozicija: {columnPosition}");
+        Debug.Log($"Stupac stvoren na ćeliji ({gridX}, {gridY}) | veličina: ({cellW:F3}, {cubeHeight}, {cellD:F3})");
     }
 }
