@@ -12,6 +12,10 @@ public class SpaceTimeCubeManager : MonoBehaviour
     [SerializeField] private float cubeHeight = 0.5f;
     [SerializeField] private Material cubeMaterial;
 
+    [Header("Audio")]
+    [SerializeField] private AudioClip spawnSound;
+    [SerializeField] private AudioSource audioSource;
+
     private InputAction buttonA;
     private GameObject activeColumn = null;
     private Vector2Int activeCell = new Vector2Int(-1, -1);
@@ -118,7 +122,31 @@ public class SpaceTimeCubeManager : MonoBehaviour
         ColumnAnimator animator = activeColumn.AddComponent<ColumnAnimator>();
         animator.Init(cellW, cubeHeight, cellD);
 
+        // Pusti zvuk iz pozicije stupca
+        PlaySpawnSound(columnPosition);
+
         activeCell = newCell;
         Debug.Log($"Stupac stvoren na ćeliji ({gridX}, {gridY}) | veličina: ({cellW:F3}, {cubeHeight}, {cellD:F3})");
+    }
+
+    private void PlaySpawnSound(Vector3 position)
+    {
+        if (spawnSound == null)
+        {
+            Debug.LogWarning("SpaceTimeCubeManager: spawnSound nije postavljen!");
+            return;
+        }
+
+        if (audioSource != null)
+        {
+            // Premjesti AudioSource na poziciju stupca za 3D zvuk
+            //audioSource.transform.position = position;
+            audioSource.PlayOneShot(spawnSound);
+        }
+        else
+        {
+            // Fallback ako AudioSource nije postavljen
+            AudioSource.PlayClipAtPoint(spawnSound, position);
+        }
     }
 }
