@@ -4,28 +4,44 @@ using UnityEngine.XR.Interaction.Toolkit.Interactors;
 
 public class RaycastTriggerEnable : MonoBehaviour
 {
-    private NearFarInteractor nearFarInteractor;
-    private InputAction rightTrigger;
+    [Header("References")]
+    [SerializeField] private NearFarInteractor nearFarInteractor;
 
-    void Awake()
+    [Header("Input")]
+    [SerializeField] private InputActionReference farCastValueAction;
+
+    [Header("Settings")]
+    [SerializeField] private float threshold = 0.1f;
+    [SerializeField] private bool logDebugValue = false;
+
+    private void Awake()
     {
-        nearFarInteractor = GetComponent<NearFarInteractor>();
-
-        rightTrigger = new InputAction(
-            binding: "<XRController>{RightHand}/trigger"
-        );
-        rightTrigger.Enable();
+        if (nearFarInteractor == null)
+            nearFarInteractor = GetComponent<NearFarInteractor>();
     }
 
-    void Update()
+    private void OnEnable()
     {
-        float val = rightTrigger.ReadValue<float>();
-        Debug.Log("Trigger: " + val);
-        nearFarInteractor.enableFarCasting = val > 0.1f;
+        if (farCastValueAction != null)
+            farCastValueAction.action.Enable();
     }
 
-    void OnDestroy()
+    private void OnDisable()
     {
-        rightTrigger.Disable();
+        if (farCastValueAction != null)
+            farCastValueAction.action.Disable();
+    }
+
+    private void Update()
+    {
+        if (nearFarInteractor == null || farCastValueAction == null)
+            return;
+
+        float value = farCastValueAction.action.ReadValue<float>();
+
+        if (logDebugValue)
+            Debug.Log($"{name} FarCast value: {value}");
+
+        nearFarInteractor.enableFarCasting = value > threshold;
     }
 }

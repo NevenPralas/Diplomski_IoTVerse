@@ -6,7 +6,17 @@ public class SpaceTimeCubeManager : MonoBehaviour
 {
     [Header("References")]
     [SerializeField] private ShaderGridHeatmap heatmap;
-    [SerializeField] private NearFarInteractor nearFarInteractor;
+
+    [Header("Interactor References")]
+    [SerializeField] private NearFarInteractor rightControllerNearFarInteractor;
+    [SerializeField] private NearFarInteractor rightHandNearFarInteractor;
+
+    [Header("Aim References")]
+    [SerializeField] private Transform rightControllerRayOrigin;
+    [SerializeField] private Transform rightHandAimPose;
+
+    [Header("Input")]
+    [SerializeField] private InputActionReference placeColumnAction;
 
     [Header("Cube Settings")]
     [SerializeField] private float cubeHeight = 0.5f;
@@ -16,45 +26,106 @@ public class SpaceTimeCubeManager : MonoBehaviour
     [SerializeField] private AudioClip spawnSound;
     [SerializeField] private AudioSource audioSource;
 
-    private InputAction buttonA;
+    [Header("Raycast")]
+    [SerializeField] private float raycastDistance = 200f;
+    [SerializeField] private bool debugRay = true;
+
     private GameObject activeColumn = null;
     private Vector2Int activeCell = new Vector2Int(-1, -1);
 
-    private void Awake()
+    private void OnEnable()
     {
-        buttonA = new InputAction(
-            binding: "<XRController>{RightHand}/primaryButton"
-        );
-        buttonA.Enable();
+        if (placeColumnAction != null)
+            placeColumnAction.action.Enable();
     }
 
-    private void OnDestroy()
+    private void OnDisable()
     {
-        buttonA.Disable();
+        if (placeColumnAction != null)
+            placeColumnAction.action.Disable();
     }
 
     private void Update()
     {
-        if (buttonA.WasPressedThisFrame())
+        if (placeColumnAction == null)
+            return;
+
+        if (placeColumnAction.action.WasPressedThisFrame())
         {
             TrySelectCell();
         }
     }
 
+    private bool IsHandModeActive()
+    {
+        return rightHandNearFarInteractor != null &&
+               rightHandNearFarInteractor.gameObject.activeInHierarchy &&
+               rightHandNearFarInteractor.isActiveAndEnabled;
+    }
+
+    private bool IsControllerModeActive()
+    {
+        return rightControllerNearFarInteractor != null &&
+               rightControllerNearFarInteractor.gameObject.activeInHierarchy &&
+               rightControllerNearFarInteractor.isActiveAndEnabled;
+    }
+
+    private bool TryGetActiveRay(out Vector3 rayOrigin, out Vector3 rayDirection)
+    {
+        // 1) Ako je hand aktivan, koristi Aim Pose
+        if (IsHandModeActive() && rightHandAimPose != null)
+        {
+            rayOrigin = rightHandAimPose.position;
+            rayDirection = rightHandAimPose.forward.normalized;
+            return true;
+        }
+
+        // 2) Inače koristi controller ray origin
+        if (IsControllerModeActive() && rightControllerRayOrigin != null)
+        {
+            rayOrigin = rightControllerRayOrigin.position;
+            rayDirection = rightControllerRayOrigin.forward.normalized;
+            return true;
+        }
+
+        // 3) Fallback na same interaktore ako baš treba
+        if (IsHandModeActive())
+        {
+            rayOrigin = rightHandNearFarInteractor.transform.position;
+            rayDirection = rightHandNearFarInteractor.transform.forward.normalized;
+            return true;
+        }
+
+        if (IsControllerModeActive())
+        {
+            rayOrigin = rightControllerNearFarInteractor.transform.position;
+            rayDirection = rightControllerNearFarInteractor.transform.forward.normalized;
+            return true;
+        }
+
+        rayOrigin = Vector3.zero;
+        rayDirection = Vector3.forward;
+        return false;
+    }
+
     private void TrySelectCell()
     {
-        if (nearFarInteractor == null || heatmap == null)
+        if (heatmap == null)
         {
-            Debug.LogWarning("SpaceTimeCubeManager: nearFarInteractor ili heatmap nije postavljen!");
+            Debug.LogWarning("SpaceTimeCubeManager: heatmap nije postavljen!");
             return;
         }
 
-        Vector3 rayOrigin = nearFarInteractor.transform.position;
-        Vector3 rayDirection = nearFarInteractor.transform.forward;
+        if (!TryGetActiveRay(out Vector3 rayOrigin, out Vector3 rayDirection))
+        {
+            Debug.LogWarning("SpaceTimeCubeManager: nema aktivnog ray sourcea!");
+            return;
+        }
 
-        Debug.DrawRay(rayOrigin, rayDirection * 10f, Color.red, 1f);
+        if (debugRay)
+            Debug.DrawRay(rayOrigin, rayDirection * raycastDistance, Color.red, 1.5f);
 
-        if (Physics.Raycast(rayOrigin, rayDirection, out RaycastHit hit, 20f))
+        if (Physics.Raycast(rayOrigin, rayDirection, out RaycastHit hit, raycastDistance))
         {
             Debug.Log($"Raycast pogodio: {hit.collider.gameObject.name} na poziciji {hit.point}");
 
@@ -95,10 +166,8 @@ public class SpaceTimeCubeManager : MonoBehaviour
 
         float cellW = heatmap.GetCellWidth();
         float cellD = heatmap.GetCellHeight();
-
         Vector3 cellCenter = heatmap.GetCellCenterWorld(gridX, gridY);
 
-        // Pozicija: dno stupca na površini grida, raste prema gore
         Vector3 columnPosition = new Vector3(
             cellCenter.x,
             cellCenter.y + cubeHeight / 2f,
@@ -111,22 +180,24 @@ public class SpaceTimeCubeManager : MonoBehaviour
         activeColumn.transform.localScale = new Vector3(cellW, cubeHeight, cellD);
 
         Collider col = activeColumn.GetComponent<Collider>();
-        if (col != null) Destroy(col);
+        if (col != null)
+            Destroy(col);
 
         if (cubeMaterial != null)
             activeColumn.GetComponent<Renderer>().material = cubeMaterial;
         else
             activeColumn.GetComponent<Renderer>().material.color = Color.yellow;
 
-        // Dodaj animator i pokreni ga s točnim dimenzijama
         ColumnAnimator animator = activeColumn.AddComponent<ColumnAnimator>();
         animator.Init(cellW, cubeHeight, cellD);
 
-        // Pusti zvuk iz pozicije stupca
         PlaySpawnSound(columnPosition);
 
         activeCell = newCell;
-        Debug.Log($"Stupac stvoren na ćeliji ({gridX}, {gridY}) | veličina: ({cellW:F3}, {cubeHeight}, {cellD:F3})");
+
+        Debug.Log(
+            $"Stupac stvoren na ćeliji ({gridX}, {gridY}) | veličina: ({cellW:F3}, {cubeHeight}, {cellD:F3})"
+        );
     }
 
     private void PlaySpawnSound(Vector3 position)
@@ -139,13 +210,10 @@ public class SpaceTimeCubeManager : MonoBehaviour
 
         if (audioSource != null)
         {
-            // Premjesti AudioSource na poziciju stupca za 3D zvuk
-            //audioSource.transform.position = position;
             audioSource.PlayOneShot(spawnSound);
         }
         else
         {
-            // Fallback ako AudioSource nije postavljen
             AudioSource.PlayClipAtPoint(spawnSound, position);
         }
     }

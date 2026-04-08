@@ -1,0 +1,77 @@
+{
+    "version": 1,
+    "name": "XRGameplayInput",
+    "maps": [
+        {
+            "name": "Gameplay",
+            "id": "c088c073-0df1-405b-b5ef-c9ea56903994",
+            "actions": [
+                {
+                    "name": "RightPlace",
+                    "type": "Button",
+                    "id": "c9783408-cbb9-4a3a-a07f-8afe94085f75",
+                    "expectedControlType": "",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": false
+                },
+                {
+                    "name": "RightFarCastValue",
+                    "type": "Value",
+                    "id": "7c76dda7-546b-48c6-bd38-cfead9cdde6f",
+                    "expectedControlType": "Axis",
+                    "processors": "",
+                    "interactions": "",
+                    "initialStateCheck": true
+                }
+            ],
+            "bindings": [
+                {
+                    "name": "",
+                    "id": "bb714b44-769f-4760-b669-f119d075bc84",
+                    "path": "<XRController>{RightHand}/{PrimaryButton}",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "RightPlace",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "75a7b692-9c7c-4f12-83be-a7ab1a95265d",
+                    "path": "<MetaAimHand>{RightHand}/indexPressed",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "RightPlace",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "dda8f6d9-66c2-4f88-91a8-12595ceada7f",
+                    "path": "<XRController>{RightHand}/trigger",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "RightFarCastValue",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                },
+                {
+                    "name": "",
+                    "id": "20cacad5-36a3-4fd7-bd8e-2235b5293d8c",
+                    "path": "<MetaAimHand>{RightHand}/pinchStrengthIndex",
+                    "interactions": "",
+                    "processors": "",
+                    "groups": "",
+                    "action": "RightFarCastValue",
+                    "isComposite": false,
+                    "isPartOfComposite": false
+                }
+            ]
+        }
+    ],
+    "controlSchemes": []
+}
