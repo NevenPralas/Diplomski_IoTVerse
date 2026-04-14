@@ -35,30 +35,64 @@ public class ColumnAnimator : MonoBehaviour
 
         transform.localScale = new Vector3(scaleX, 0f, scaleZ);
 
-        Vector3 pos = transform.position;
+        Vector3 pos = transform.localPosition;
         pos.y -= scaleY / 2f;
-        transform.position = pos;
+        transform.localPosition = pos;
 
         riseTimer = 0f;
         isRising = true;
 
-        // Dohvati renderer i napravi instancu materijala da ne mijenjamo originalni asset
+        SetupMaterial();
+    }
+
+    public void SetInstantState(float scaleX, float scaleY, float scaleZ)
+    {
+        targetScaleX = scaleX;
+        targetScaleY = scaleY;
+        targetScaleZ = scaleZ;
+        basePulseY = scaleY;
+
+        transform.localScale = new Vector3(scaleX, scaleY, scaleZ);
+
+        Vector3 pos = transform.localPosition;
+        pos.y = scaleY / 2f;
+        transform.localPosition = pos;
+
+        riseTimer = riseDuration;
+        isRising = false;
+
+        SetupMaterial();
+    }
+
+    private void SetupMaterial()
+    {
         columnRenderer = GetComponent<Renderer>();
         if (columnRenderer != null)
         {
             columnMaterial = columnRenderer.material;
 
-            // Uključi emission keyword ako već nije
-            columnMaterial.EnableKeyword("_EMISSION");
-
-            // Zapamti baznu emission boju iz materijala
-            baseEmissionColor = columnMaterial.GetColor("_EmissionColor");
-
-            // Ako emission nije postavljen na materijalu, uzmi base color kao fallback
-            if (baseEmissionColor == Color.black)
+            if (columnMaterial.HasProperty("_EmissionColor"))
             {
-                Color baseColor = columnMaterial.GetColor("_BaseColor");
-                baseEmissionColor = new Color(baseColor.r, baseColor.g, baseColor.b, 1f);
+                columnMaterial.EnableKeyword("_EMISSION");
+                baseEmissionColor = columnMaterial.GetColor("_EmissionColor");
+
+                if (baseEmissionColor == Color.black)
+                {
+                    if (columnMaterial.HasProperty("_BaseColor"))
+                    {
+                        Color baseColor = columnMaterial.GetColor("_BaseColor");
+                        baseEmissionColor = new Color(baseColor.r, baseColor.g, baseColor.b, 1f);
+                    }
+                    else if (columnMaterial.HasProperty("_Color"))
+                    {
+                        Color baseColor = columnMaterial.GetColor("_Color");
+                        baseEmissionColor = new Color(baseColor.r, baseColor.g, baseColor.b, 1f);
+                    }
+                    else
+                    {
+                        baseEmissionColor = Color.white;
+                    }
+                }
             }
         }
     }
@@ -75,33 +109,44 @@ public class ColumnAnimator : MonoBehaviour
             float currentY = Mathf.Lerp(0f, targetScaleY, easedT);
             transform.localScale = new Vector3(targetScaleX, currentY, targetScaleZ);
 
+            Vector3 pos = transform.localPosition;
+            pos.y = currentY / 2f;
+            transform.localPosition = pos;
+
             if (t >= 1f)
             {
                 transform.localScale = new Vector3(targetScaleX, targetScaleY, targetScaleZ);
+
+                Vector3 finalPos = transform.localPosition;
+                finalPos.y = targetScaleY / 2f;
+                transform.localPosition = finalPos;
+
                 isRising = false;
             }
         }
         else
         {
-            // Pulsiranje scale-a
             float pulse = Mathf.Sin(Time.time * pulseSpeed * Mathf.PI) * pulseAmount;
             float newY = basePulseY + pulse;
+
             transform.localScale = new Vector3(targetScaleX, newY, targetScaleZ);
+
+            Vector3 pos = transform.localPosition;
+            pos.y = newY / 2f;
+            transform.localPosition = pos;
         }
 
-        // Animacija sjaja — radi i dok niče i dok pulsira
         AnimateGlow();
     }
 
     private void AnimateGlow()
     {
         if (columnMaterial == null) return;
+        if (!columnMaterial.HasProperty("_EmissionColor")) return;
 
-        // Sin između glowMin i glowMax — lagano treperi
         float t = (Mathf.Sin(Time.time * glowSpeed * Mathf.PI) + 1f) / 2f;
         float intensity = Mathf.Lerp(glowMin, glowMax, t);
 
-        // HDR boja za emission — množimo baznu boju s intenzitetom
         Color emissionColor = baseEmissionColor * intensity;
         columnMaterial.SetColor("_EmissionColor", emissionColor);
     }

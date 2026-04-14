@@ -14,6 +14,7 @@ public class SpaceTimeCubeManager : MonoBehaviour
     [Header("Main White Column")]
     [SerializeField] private float cubeHeight = 1.8f;
     [SerializeField] private Material cubeMaterial;
+    [SerializeField] private bool animateMainColumn = true;
 
     [Header("Surface Time Bands")]
     [SerializeField] private Material bandMaterial;
@@ -105,7 +106,7 @@ public class SpaceTimeCubeManager : MonoBehaviour
         }
 
         activeCell = newCell;
-        BuildColumn(gridX, gridY);
+        BuildColumn(gridX, gridY, true);
         refreshTimer = 0f;
 
         Vector3 cellCenter = heatmap.GetCellCenterWorld(gridX, gridY);
@@ -123,10 +124,10 @@ public class SpaceTimeCubeManager : MonoBehaviour
         if (activeColumnRoot != null)
             Destroy(activeColumnRoot);
 
-        BuildColumn(activeCell.x, activeCell.y);
+        BuildColumn(activeCell.x, activeCell.y, false);
     }
 
-    private void BuildColumn(int gridX, int gridY)
+    private void BuildColumn(int gridX, int gridY, bool playRiseAnimation)
     {
         if (visibleSeconds <= 0)
             visibleSeconds = 1;
@@ -138,11 +139,11 @@ public class SpaceTimeCubeManager : MonoBehaviour
         activeColumnRoot = new GameObject($"SpaceTimeColumnRoot_{gridX}_{gridY}");
         activeColumnRoot.transform.position = cellCenter;
 
-        CreateMainWhiteColumn(activeColumnRoot.transform, cellW, cubeHeight, cellD);
+        CreateMainWhiteColumn(activeColumnRoot.transform, cellW, cubeHeight, cellD, playRiseAnimation);
         CreateSurfaceBands(activeColumnRoot.transform, gridX, gridY, cellW, cubeHeight, cellD);
     }
 
-    private void CreateMainWhiteColumn(Transform parent, float cellW, float height, float cellD)
+    private void CreateMainWhiteColumn(Transform parent, float cellW, float height, float cellD, bool playRiseAnimation)
     {
         GameObject mainColumn = GameObject.CreatePrimitive(PrimitiveType.Cube);
         mainColumn.name = "MainWhiteColumn";
@@ -158,13 +159,25 @@ public class SpaceTimeCubeManager : MonoBehaviour
 
         if (cubeMaterial != null)
         {
-            renderer.material = cubeMaterial;
+            renderer.material = new Material(cubeMaterial);
         }
         else
         {
             Material fallback = new Material(Shader.Find("Universal Render Pipeline/Lit"));
             fallback.color = new Color(1f, 1f, 1f, 0.35f);
             renderer.material = fallback;
+        }
+
+        if (animateMainColumn)
+        {
+            ColumnAnimator animator = mainColumn.GetComponent<ColumnAnimator>();
+            if (animator == null)
+                animator = mainColumn.AddComponent<ColumnAnimator>();
+
+            if (playRiseAnimation)
+                animator.Init(cellW, height, cellD);
+            else
+                animator.SetInstantState(cellW, height, cellD);
         }
     }
 
