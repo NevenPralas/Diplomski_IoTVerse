@@ -19,10 +19,14 @@ public class SpaceTimeCubeManager : MonoBehaviour
     [SerializeField] private Material bandMaterial;
     [SerializeField] private int visibleSeconds = 60;
     [SerializeField] private float refreshInterval = 1f;
-    [SerializeField] private float shellExpand = 0.03f;
-    [SerializeField] private float shellAlpha = 0.95f;
-    [SerializeField] private float verticalBandGap = 0.002f;
+    [SerializeField] private float shellExpand = 0.015f;
+    [SerializeField] private float shellAlpha = 0.9f;
+    [SerializeField] private float verticalBandGap = 0.004f;
     [SerializeField] private bool paintTopCap = false;
+
+    [Header("Band Visual Tuning")]
+    [SerializeField] private bool useEmissionForBands = true;
+    [SerializeField] private float emissionIntensity = 1.2f;
 
     [Header("Audio")]
     [SerializeField] private AudioClip spawnSound;
@@ -175,12 +179,9 @@ public class SpaceTimeCubeManager : MonoBehaviour
         float oldestVisibleTime = Mathf.Max(0f, currentTime - visibleSeconds);
 
         float sliceHeight = height / visibleSeconds;
-        float bandHeight = Mathf.Max(0.001f, sliceHeight - verticalBandGap);
+        float bandHeight = Mathf.Max(0.002f, sliceHeight - verticalBandGap);
 
-        float outerW = cellW + shellExpand;
-        float outerD = cellD + shellExpand;
-
-        float faceThickness = Mathf.Max(0.003f, shellExpand * 0.5f);
+        float faceThickness = Mathf.Max(0.004f, shellExpand);
 
         for (int secondIndex = 0; secondIndex < visibleSeconds; secondIndex++)
         {
@@ -205,8 +206,6 @@ public class SpaceTimeCubeManager : MonoBehaviour
                 bandHeight,
                 cellW,
                 cellD,
-                outerW,
-                outerD,
                 faceThickness,
                 c);
 
@@ -217,8 +216,8 @@ public class SpaceTimeCubeManager : MonoBehaviour
                     secondIndex,
                     yCenter,
                     bandHeight,
-                    outerW,
-                    outerD,
+                    cellW,
+                    cellD,
                     faceThickness,
                     c);
             }
@@ -230,46 +229,40 @@ public class SpaceTimeCubeManager : MonoBehaviour
         int index,
         float yCenter,
         float bandHeight,
-        float innerW,
-        float innerD,
-        float outerW,
-        float outerD,
+        float cellW,
+        float cellD,
         float faceThickness,
         Color color)
     {
-        float frontBackZOffset = (innerD * 0.5f) + (faceThickness * 0.5f);
-        float leftRightXOffset = (innerW * 0.5f) + (faceThickness * 0.5f);
+        float frontZ = (cellD * 0.5f) + (faceThickness * 0.5f);
+        float sideX = (cellW * 0.5f) + (faceThickness * 0.5f);
 
-        // Front
         CreateBandPiece(
             parent,
             $"Band_{index}_Front",
-            new Vector3(0f, yCenter, frontBackZOffset),
-            new Vector3(outerW, bandHeight, faceThickness),
+            new Vector3(0f, yCenter, frontZ),
+            new Vector3(cellW + faceThickness, bandHeight, faceThickness),
             color);
 
-        // Back
         CreateBandPiece(
             parent,
             $"Band_{index}_Back",
-            new Vector3(0f, yCenter, -frontBackZOffset),
-            new Vector3(outerW, bandHeight, faceThickness),
+            new Vector3(0f, yCenter, -frontZ),
+            new Vector3(cellW + faceThickness, bandHeight, faceThickness),
             color);
 
-        // Left
         CreateBandPiece(
             parent,
             $"Band_{index}_Left",
-            new Vector3(-leftRightXOffset, yCenter, 0f),
-            new Vector3(faceThickness, bandHeight, outerD),
+            new Vector3(-sideX, yCenter, 0f),
+            new Vector3(faceThickness, bandHeight, cellD + faceThickness),
             color);
 
-        // Right
         CreateBandPiece(
             parent,
             $"Band_{index}_Right",
-            new Vector3(leftRightXOffset, yCenter, 0f),
-            new Vector3(faceThickness, bandHeight, outerD),
+            new Vector3(sideX, yCenter, 0f),
+            new Vector3(faceThickness, bandHeight, cellD + faceThickness),
             color);
     }
 
@@ -278,8 +271,8 @@ public class SpaceTimeCubeManager : MonoBehaviour
         int index,
         float yCenter,
         float bandHeight,
-        float outerW,
-        float outerD,
+        float cellW,
+        float cellD,
         float faceThickness,
         Color color)
     {
@@ -287,7 +280,7 @@ public class SpaceTimeCubeManager : MonoBehaviour
         cap.name = $"Band_{index}_TopCap";
         cap.transform.SetParent(parent, false);
         cap.transform.localPosition = new Vector3(0f, yCenter + (bandHeight * 0.5f) - (faceThickness * 0.5f), 0f);
-        cap.transform.localScale = new Vector3(outerW, faceThickness, outerD);
+        cap.transform.localScale = new Vector3(cellW + faceThickness, faceThickness, cellD + faceThickness);
 
         Collider col = cap.GetComponent<Collider>();
         if (col != null)
@@ -320,9 +313,19 @@ public class SpaceTimeCubeManager : MonoBehaviour
         if (bandMaterial != null)
             mat = new Material(bandMaterial);
         else
-            mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+            mat = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
 
         mat.color = color;
+
+        if (useEmissionForBands)
+        {
+            if (mat.HasProperty("_EmissionColor"))
+            {
+                mat.EnableKeyword("_EMISSION");
+                mat.SetColor("_EmissionColor", color * emissionIntensity);
+            }
+        }
+
         return mat;
     }
 
