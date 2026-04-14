@@ -2060,9 +2060,10 @@ MonoBehaviour:
   minTemperature: 18
   maxTemperature: 22
   cellParticles: {fileID: 1415382492}
-  generateRandomCellsOnStart: 1
+  generateRandomCellsOnStart: 0
   randomCellsCount: 12
   clearBeforeRandomFill: 1
+  historyRetentionSeconds: 180
 --- !u!114 &1415382491
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2183,6 +2184,13 @@ MonoBehaviour:
   placeColumnAction: {fileID: -5274112989247405039, guid: d41568d653d00a84db68f371fdac50be, type: 3}
   cubeHeight: 4
   cubeMaterial: {fileID: 2100000, guid: 2215980e84cfe734a97550d24795c402, type: 2}
+  bandMaterial: {fileID: 2100000, guid: 70f7a3b646a251b498076f5ee958f52d, type: 2}
+  visibleSeconds: 60
+  refreshInterval: 1
+  shellExpand: 0.03
+  shellAlpha: 0.95
+  verticalBandGap: 0.002
+  paintTopCap: 0
   spawnSound: {fileID: 8300000, guid: 51092d3cf25e177438aaa09e55d3223c, type: 3}
   audioSource: {fileID: 1415382494}
 --- !u!82 &1415382494
@@ -2805,7 +2813,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8135023674665499069, guid: 58d0a4ac86f2348deb02f3880c71378e, type: 3}
       propertyPath: m_IsActive
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 8518324294302271954, guid: 58d0a4ac86f2348deb02f3880c71378e, type: 3}
       propertyPath: m_LocalPosition.x

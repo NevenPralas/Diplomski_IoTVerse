@@ -1,9 +1,23 @@
 ﻿using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 [RequireComponent(typeof(Renderer))]
 public class ShaderGridHeatmap : MonoBehaviour
 {
+    [Serializable]
+    public class CellTemperatureSample
+    {
+        public float relativeTime;
+        public float temperature;
+
+        public CellTemperatureSample(float relativeTime, float temperature)
+        {
+            this.relativeTime = relativeTime;
+            this.temperature = temperature;
+        }
+    }
+
     [Header("Target Renderer")]
     [SerializeField] private Renderer targetRenderer;
 
@@ -33,18 +47,26 @@ public class ShaderGridHeatmap : MonoBehaviour
     [SerializeField] private int randomCellsCount = 12;
     [SerializeField] private bool clearBeforeRandomFill = true;
 
+    [Header("Cell History")]
+    [SerializeField] private float historyRetentionSeconds = 180f;
+
     private Texture2D heatmapTexture;
     private Material runtimeMaterial;
-
     private float cellWidth;
     private float cellHeight;
     private Vector3 origin;
+
+    private float simulationStartTime;
+
+    private readonly Dictionary<Vector2Int, List<CellTemperatureSample>> cellHistory =
+        new Dictionary<Vector2Int, List<CellTemperatureSample>>();
 
     private void Awake()
     {
         if (targetRenderer == null)
             targetRenderer = GetComponent<Renderer>();
 
+        simulationStartTime = Time.time;
         InitializeHeatmap();
 
         if (generateRandomCellsOnStart)
@@ -76,7 +98,6 @@ public class ShaderGridHeatmap : MonoBehaviour
 
         cellWidth = worldWidth / gridSizeX;
         cellHeight = worldHeight / gridSizeY;
-
         origin = transform.position - new Vector3(worldWidth / 2f, 0f, worldHeight / 2f);
 
         heatmapTexture = new Texture2D(gridSizeX, gridSizeY, TextureFormat.RGBA32, false);
@@ -90,7 +111,6 @@ public class ShaderGridHeatmap : MonoBehaviour
 
         float shaderSizeX = gridSizeX / baselineGridX;
         float shaderSizeY = gridSizeY / baselineGridY;
-
         runtimeMaterial.SetVector(gridSizeProperty, new Vector4(shaderSizeX, shaderSizeY, 0f, 0f));
     }
 
@@ -106,7 +126,6 @@ public class ShaderGridHeatmap : MonoBehaviour
     public void PaintAlongPath(Vector3 startWorldPosition, Vector3 endWorldPosition, float temperature)
     {
         float distance = Vector3.Distance(startWorldPosition, endWorldPosition);
-
         float sampleStep = Mathf.Min(cellWidth, cellHeight) * 0.35f;
         int sampleCount = Mathf.Max(1, Mathf.CeilToInt(distance / sampleStep));
 
@@ -162,8 +181,55 @@ public class ShaderGridHeatmap : MonoBehaviour
         Color color = GetTemperatureColor(temperature);
         heatmapTexture.SetPixel(gridSizeX - 1 - gridX, gridSizeY - 1 - gridY, color);
 
+        RecordCellSample(gridX, gridY, temperature);
+
         if (cellParticles != null)
             cellParticles.ShowOrUpdateCellParticle(gridX, gridY, temperature);
+    }
+
+    private void RecordCellSample(int gridX, int gridY, float temperature)
+    {
+        Vector2Int key = new Vector2Int(gridX, gridY);
+
+        if (!cellHistory.TryGetValue(key, out List<CellTemperatureSample> samples))
+        {
+            samples = new List<CellTemperatureSample>();
+            cellHistory[key] = samples;
+        }
+
+        float relativeTime = Time.time - simulationStartTime;
+
+        // Nemoj spamati potpuno identične uzastopne zapise
+        if (samples.Count > 0)
+        {
+            CellTemperatureSample last = samples[samples.Count - 1];
+
+            if (Mathf.Abs(last.relativeTime - relativeTime) < 0.01f &&
+                Mathf.Abs(last.temperature - temperature) < 0.001f)
+            {
+                return;
+            }
+        }
+
+        samples.Add(new CellTemperatureSample(relativeTime, temperature));
+
+        float minAllowedTime = relativeTime - historyRetentionSeconds;
+        samples.RemoveAll(sample => sample.relativeTime < minAllowedTime);
+    }
+
+    public List<CellTemperatureSample> GetCellHistory(int gridX, int gridY)
+    {
+        Vector2Int key = new Vector2Int(gridX, gridY);
+
+        if (cellHistory.TryGetValue(key, out List<CellTemperatureSample> samples))
+            return new List<CellTemperatureSample>(samples);
+
+        return new List<CellTemperatureSample>();
+    }
+
+    public float GetRelativeSimulationTime()
+    {
+        return Time.time - simulationStartTime;
     }
 
     public bool TryGetCellIndex(Vector3 worldPosition, out int gridX, out int gridY)
@@ -174,8 +240,7 @@ public class ShaderGridHeatmap : MonoBehaviour
         gridX = Mathf.FloorToInt(localX / cellWidth);
         gridY = Mathf.FloorToInt(localZ / cellHeight);
 
-        return gridX >= 0 && gridX < gridSizeX &&
-               gridY >= 0 && gridY < gridSizeY;
+        return gridX >= 0 && gridX < gridSizeX && gridY >= 0 && gridY < gridSizeY;
     }
 
     public Vector3 GetCellCenterWorld(int gridX, int gridY)
@@ -191,10 +256,6 @@ public class ShaderGridHeatmap : MonoBehaviour
     {
         float t = Mathf.InverseLerp(minTemperature, maxTemperature, temperature);
 
-        // Tri kontrolne tocke za ljepsi gradijent od originalna dva:
-        //   t=0.0  →  #D4621A  mat narancasta        (min temperatura)
-        //   t=0.5  →  #C03030  svjetlija mat crvena   (sredina)
-        //   t=1.0  →  #7A1010  tamna mat crvena       (max temperatura)
         Color orange = new Color(0.831f, 0.384f, 0.102f, 0.85f);
         Color midRed = new Color(0.753f, 0.188f, 0.188f, 0.85f);
         Color darkRed = new Color(0.478f, 0.063f, 0.063f, 0.85f);
@@ -232,6 +293,8 @@ public class ShaderGridHeatmap : MonoBehaviour
     public void ClearHeatmap()
     {
         ClearTexture();
+        cellHistory.Clear();
+        simulationStartTime = Time.time;
 
         if (cellParticles != null)
             cellParticles.ClearAllParticles();
