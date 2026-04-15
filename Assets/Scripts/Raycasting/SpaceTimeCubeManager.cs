@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -16,18 +17,33 @@ public class SpaceTimeCubeManager : MonoBehaviour
     [SerializeField] private Material cubeMaterial;
     [SerializeField] private bool animateMainColumn = true;
 
-    [Header("Surface Time Bands")]
+    [Header("Filled Time Slices")]
     [SerializeField] private Material bandMaterial;
     [SerializeField] private int visibleSeconds = 60;
     [SerializeField] private float refreshInterval = 1f;
     [SerializeField] private float shellExpand = 0.015f;
     [SerializeField] private float shellAlpha = 0.9f;
     [SerializeField] private float verticalBandGap = 0.004f;
-    [SerializeField] private bool paintTopCap = false;
 
     [Header("Band Visual Tuning")]
     [SerializeField] private bool useEmissionForBands = true;
     [SerializeField] private float emissionIntensity = 1.2f;
+
+    [Header("Time Labels")]
+    [SerializeField] private bool showTimeLabels = true;
+    [SerializeField] private float labelHorizontalOffset = 0.18f;
+    [SerializeField] private float labelVerticalNudge = 0.0f;
+    [SerializeField] private int labelFontSize = 48;
+    [SerializeField] private float labelCharacterSize = 0.02f;
+    [SerializeField] private Color labelColor = Color.white;
+    [SerializeField] private Font labelFont;
+
+    [Header("Date Label")]
+    [SerializeField] private bool showDateLabel = true;
+    [SerializeField] private float dateLabelHeightOffset = 0.14f;
+    [SerializeField] private int dateLabelFontSize = 52;
+    [SerializeField] private float dateLabelCharacterSize = 0.022f;
+    [SerializeField] private Color dateLabelColor = Color.white;
 
     [Header("Audio")]
     [SerializeField] private AudioClip spawnSound;
@@ -140,7 +156,13 @@ public class SpaceTimeCubeManager : MonoBehaviour
         activeColumnRoot.transform.position = cellCenter;
 
         CreateMainWhiteColumn(activeColumnRoot.transform, cellW, cubeHeight, cellD, playRiseAnimation);
-        CreateSurfaceBands(activeColumnRoot.transform, gridX, gridY, cellW, cubeHeight, cellD);
+        CreateFilledTimeSlices(activeColumnRoot.transform, gridX, gridY, cellW, cubeHeight, cellD);
+
+        if (showTimeLabels)
+            CreateAdaptiveTimeLabels(activeColumnRoot.transform, cellW);
+
+        if (showDateLabel)
+            CreateDateLabel(activeColumnRoot.transform);
     }
 
     private void CreateMainWhiteColumn(Transform parent, float cellW, float height, float cellD, bool playRiseAnimation)
@@ -181,7 +203,7 @@ public class SpaceTimeCubeManager : MonoBehaviour
         }
     }
 
-    private void CreateSurfaceBands(Transform parent, int gridX, int gridY, float cellW, float height, float cellD)
+    private void CreateFilledTimeSlices(Transform parent, int gridX, int gridY, float cellW, float height, float cellD)
     {
         List<ShaderGridHeatmap.CellTemperatureSample> history = heatmap.GetCellHistory(gridX, gridY);
 
@@ -192,9 +214,10 @@ public class SpaceTimeCubeManager : MonoBehaviour
         float oldestVisibleTime = Mathf.Max(0f, currentTime - visibleSeconds);
 
         float sliceHeight = height / visibleSeconds;
-        float bandHeight = Mathf.Max(0.002f, sliceHeight - verticalBandGap);
+        float filledSliceHeight = Mathf.Max(0.002f, sliceHeight - verticalBandGap);
 
-        float faceThickness = Mathf.Max(0.004f, shellExpand);
+        float sliceWidth = cellW + shellExpand;
+        float sliceDepth = cellD + shellExpand;
 
         for (int secondIndex = 0; secondIndex < visibleSeconds; secondIndex++)
         {
@@ -212,98 +235,16 @@ public class SpaceTimeCubeManager : MonoBehaviour
             Color c = heatmap.GetColorForTemperature(latestSample.temperature);
             c.a = shellAlpha;
 
-            CreateBandOnAllSides(
+            CreateFilledBandPiece(
                 parent,
-                secondIndex,
-                yCenter,
-                bandHeight,
-                cellW,
-                cellD,
-                faceThickness,
+                $"FilledSlice_{secondIndex}",
+                new Vector3(0f, yCenter, 0f),
+                new Vector3(sliceWidth, filledSliceHeight, sliceDepth),
                 c);
-
-            if (paintTopCap)
-            {
-                CreateTopCapBand(
-                    parent,
-                    secondIndex,
-                    yCenter,
-                    bandHeight,
-                    cellW,
-                    cellD,
-                    faceThickness,
-                    c);
-            }
         }
     }
 
-    private void CreateBandOnAllSides(
-        Transform parent,
-        int index,
-        float yCenter,
-        float bandHeight,
-        float cellW,
-        float cellD,
-        float faceThickness,
-        Color color)
-    {
-        float frontZ = (cellD * 0.5f) + (faceThickness * 0.5f);
-        float sideX = (cellW * 0.5f) + (faceThickness * 0.5f);
-
-        CreateBandPiece(
-            parent,
-            $"Band_{index}_Front",
-            new Vector3(0f, yCenter, frontZ),
-            new Vector3(cellW + faceThickness, bandHeight, faceThickness),
-            color);
-
-        CreateBandPiece(
-            parent,
-            $"Band_{index}_Back",
-            new Vector3(0f, yCenter, -frontZ),
-            new Vector3(cellW + faceThickness, bandHeight, faceThickness),
-            color);
-
-        CreateBandPiece(
-            parent,
-            $"Band_{index}_Left",
-            new Vector3(-sideX, yCenter, 0f),
-            new Vector3(faceThickness, bandHeight, cellD + faceThickness),
-            color);
-
-        CreateBandPiece(
-            parent,
-            $"Band_{index}_Right",
-            new Vector3(sideX, yCenter, 0f),
-            new Vector3(faceThickness, bandHeight, cellD + faceThickness),
-            color);
-    }
-
-    private void CreateTopCapBand(
-        Transform parent,
-        int index,
-        float yCenter,
-        float bandHeight,
-        float cellW,
-        float cellD,
-        float faceThickness,
-        Color color)
-    {
-        GameObject cap = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        cap.name = $"Band_{index}_TopCap";
-        cap.transform.SetParent(parent, false);
-        cap.transform.localPosition = new Vector3(0f, yCenter + (bandHeight * 0.5f) - (faceThickness * 0.5f), 0f);
-        cap.transform.localScale = new Vector3(cellW + faceThickness, faceThickness, cellD + faceThickness);
-
-        Collider col = cap.GetComponent<Collider>();
-        if (col != null)
-            Destroy(col);
-
-        Renderer renderer = cap.GetComponent<Renderer>();
-        renderer.material = CreateRuntimeBandMaterial(color);
-    }
-
-    private void CreateBandPiece(Transform parent, string pieceName, Vector3 localPosition, Vector3 localScale, Color color)
+    private void CreateFilledBandPiece(Transform parent, string pieceName, Vector3 localPosition, Vector3 localScale, Color color)
     {
         GameObject piece = GameObject.CreatePrimitive(PrimitiveType.Cube);
         piece.name = pieceName;
@@ -317,6 +258,152 @@ public class SpaceTimeCubeManager : MonoBehaviour
 
         Renderer renderer = piece.GetComponent<Renderer>();
         renderer.material = CreateRuntimeBandMaterial(color);
+    }
+
+    private void CreateAdaptiveTimeLabels(Transform parent, float cellW)
+    {
+        float elapsed = Mathf.Max(0f, heatmap.GetRelativeSimulationTime());
+
+        DateTime now = DateTime.Now;
+
+        float xOffset = (cellW * 0.5f) + labelHorizontalOffset;
+        float zOffset = 0f;
+
+        if (elapsed < 30f)
+        {
+            float currentY = Mathf.Lerp(0f, cubeHeight * 0.5f, elapsed / 30f) + labelVerticalNudge;
+
+            CreateSingleTimeLabel(
+                parent,
+                "TimeLabel_CurrentOnly",
+                FormatClockTime(now),
+                new Vector3(xOffset, currentY, zOffset));
+
+            return;
+        }
+
+        if (elapsed < visibleSeconds)
+        {
+            float progress = (elapsed - 30f) / (visibleSeconds - 30f);
+
+            float lowerY = Mathf.Lerp(0f, cubeHeight * 0.5f, progress) + labelVerticalNudge;
+            float upperY = Mathf.Lerp(cubeHeight * 0.5f, cubeHeight, progress) + labelVerticalNudge;
+
+            DateTime minus30 = now.AddSeconds(-30);
+
+            CreateSingleTimeLabel(
+                parent,
+                "TimeLabel_Minus30",
+                FormatClockTime(minus30),
+                new Vector3(xOffset, lowerY, zOffset));
+
+            CreateSingleTimeLabel(
+                parent,
+                "TimeLabel_Now",
+                FormatClockTime(now),
+                new Vector3(xOffset, upperY, zOffset));
+
+            return;
+        }
+
+        DateTime minus60Final = now.AddSeconds(-visibleSeconds);
+        DateTime minus30Final = now.AddSeconds(-(visibleSeconds * 0.5f));
+        DateTime nowFinal = now;
+
+        CreateSingleTimeLabel(
+            parent,
+            "TimeLabel_Bottom",
+            FormatClockTime(minus60Final),
+            new Vector3(xOffset, 0f + labelVerticalNudge, zOffset));
+
+        CreateSingleTimeLabel(
+            parent,
+            "TimeLabel_Middle",
+            FormatClockTime(minus30Final),
+            new Vector3(xOffset, (cubeHeight * 0.5f) + labelVerticalNudge, zOffset));
+
+        CreateSingleTimeLabel(
+            parent,
+            "TimeLabel_Top",
+            FormatClockTime(nowFinal),
+            new Vector3(xOffset, cubeHeight + labelVerticalNudge, zOffset));
+    }
+
+    private void CreateDateLabel(Transform parent)
+    {
+        DateTime now = DateTime.Now;
+
+        CreateSingleDateLabel(
+            parent,
+            "DateLabel",
+            FormatDate(now),
+            new Vector3(0f, cubeHeight + dateLabelHeightOffset, 0f));
+    }
+
+    private void CreateSingleTimeLabel(Transform parent, string objectName, string textValue, Vector3 localPosition)
+    {
+        GameObject labelObj = new GameObject(objectName);
+        labelObj.transform.SetParent(parent, false);
+        labelObj.transform.localPosition = localPosition;
+        labelObj.transform.localRotation = Quaternion.identity;
+        labelObj.transform.localScale = Vector3.one;
+
+        TextMesh textMesh = labelObj.AddComponent<TextMesh>();
+        textMesh.text = textValue;
+        textMesh.fontSize = labelFontSize;
+        textMesh.characterSize = labelCharacterSize;
+        textMesh.anchor = TextAnchor.MiddleLeft;
+        textMesh.alignment = TextAlignment.Left;
+        textMesh.color = labelColor;
+
+        if (labelFont != null)
+        {
+            textMesh.font = labelFont;
+
+            MeshRenderer renderer = labelObj.GetComponent<MeshRenderer>();
+            if (renderer != null && labelFont.material != null)
+                renderer.material = labelFont.material;
+        }
+
+        labelObj.AddComponent<WorldLabelBillboard>();
+    }
+
+    private void CreateSingleDateLabel(Transform parent, string objectName, string textValue, Vector3 localPosition)
+    {
+        GameObject labelObj = new GameObject(objectName);
+        labelObj.transform.SetParent(parent, false);
+        labelObj.transform.localPosition = localPosition;
+        labelObj.transform.localRotation = Quaternion.identity;
+        labelObj.transform.localScale = Vector3.one;
+
+        TextMesh textMesh = labelObj.AddComponent<TextMesh>();
+        textMesh.text = textValue;
+        textMesh.fontSize = dateLabelFontSize;
+        textMesh.characterSize = dateLabelCharacterSize;
+        textMesh.anchor = TextAnchor.MiddleCenter;
+        textMesh.alignment = TextAlignment.Center;
+        textMesh.color = dateLabelColor;
+
+        if (labelFont != null)
+        {
+            textMesh.font = labelFont;
+
+            MeshRenderer renderer = labelObj.GetComponent<MeshRenderer>();
+            if (renderer != null && labelFont.material != null)
+                renderer.material = labelFont.material;
+        }
+
+        labelObj.AddComponent<WorldLabelBillboard>();
+    }
+
+    private string FormatClockTime(DateTime timeValue)
+    {
+        return timeValue.ToString("HH:mm:ss");
+    }
+
+    private string FormatDate(DateTime timeValue)
+    {
+        return timeValue.ToString("dd/MM/yyyy");
     }
 
     private Material CreateRuntimeBandMaterial(Color color)

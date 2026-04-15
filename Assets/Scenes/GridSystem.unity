@@ -2182,7 +2182,7 @@ MonoBehaviour:
   heatmap: {fileID: 1415382490}
   gridCellCursor: {fileID: 1181641074}
   placeColumnAction: {fileID: -5274112989247405039, guid: d41568d653d00a84db68f371fdac50be, type: 3}
-  cubeHeight: 2.5
+  cubeHeight: 2
   cubeMaterial: {fileID: 2100000, guid: 2215980e84cfe734a97550d24795c402, type: 2}
   animateMainColumn: 1
   bandMaterial: {fileID: 2100000, guid: c898865ead2851645add179a336ca0c6, type: 2}
@@ -2191,9 +2191,20 @@ MonoBehaviour:
   shellExpand: 0.015
   shellAlpha: 0.95
   verticalBandGap: 0.002
-  paintTopCap: 0
   useEmissionForBands: 1
   emissionIntensity: 1.2
+  showTimeLabels: 1
+  labelHorizontalOffset: 0.18
+  labelVerticalNudge: 0
+  labelFontSize: 48
+  labelCharacterSize: 0.02
+  labelColor: {r: 1, g: 1, b: 1, a: 1}
+  labelFont: {fileID: 12800000, guid: e3265ab4bf004d28a9537516768c1c75, type: 3}
+  showDateLabel: 1
+  dateLabelHeightOffset: 0.14
+  dateLabelFontSize: 52
+  dateLabelCharacterSize: 0.022
+  dateLabelColor: {r: 1, g: 1, b: 1, a: 1}
   spawnSound: {fileID: 8300000, guid: 51092d3cf25e177438aaa09e55d3223c, type: 3}
   audioSource: {fileID: 1415382494}
 --- !u!82 &1415382494
