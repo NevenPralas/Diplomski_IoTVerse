@@ -1,0 +1,11 @@
+Model Information:
+* title:	ULTIMATRIX
+* source:	https://sketchfab.com/3d-models/ultimatrix-23c88f8090664559be03a4ec4c236130
+* author:	Tetra (https://sketchfab.com/Tetraart)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "ULTIMATRIX" (https://sketchfab.com/3d-models/ultimatrix-23c88f8090664559be03a4ec4c236130) by Tetra (https://sketchfab.com/Tetraart) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
