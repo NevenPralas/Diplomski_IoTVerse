@@ -474,7 +474,10 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 2774220344278030320, guid: a1a3acc27abdbd8468e22517c626f47b, type: 3}
       insertIndex: -1
       addedObject: {fileID: 1430103343}
-    m_AddedComponents: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: -6689036041284674117, guid: a1a3acc27abdbd8468e22517c626f47b, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 374640348}
   m_SourcePrefab: {fileID: -5645937942226959685, guid: a1a3acc27abdbd8468e22517c626f47b, type: 3}
 --- !u!4 &146760863 stripped
 Transform:
@@ -490,6 +493,86 @@ Transform:
 Transform:
   m_CorrespondingSourceObject: {fileID: 657184242222895506, guid: d6878e1999eb4b44a9f5a263af86c185, type: 3}
   m_PrefabInstance: {fileID: 861624077}
+  m_PrefabAsset: {fileID: 0}
+--- !u!1 &203113565
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 203113566}
+  - component: {fileID: 203113568}
+  - component: {fileID: 203113567}
+  m_Layer: 5
+  m_Name: A
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!224 &203113566
+RectTransform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 203113565}
+  m_LocalRotation: {x: 0.000000014901156, y: 0.000000084750326, z: 0.000000059604623, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 0.13, y: 0.13, z: 0.13}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 1430103343}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_AnchorMin: {x: 0.5, y: 0.5}
+  m_AnchorMax: {x: 0.5, y: 0.5}
+  m_AnchoredPosition: {x: -15, y: -15}
+  m_SizeDelta: {x: 100, y: 100}
+  m_Pivot: {x: 0.5, y: 0.5}
+--- !u!114 &203113567
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 203113565}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fe87c0e1cc204ed48ad3b37840f39efc, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.UI.Image
+  m_Material: {fileID: 2100000, guid: 432d3b612001a4a429b2811ed66d2209, type: 2}
+  m_Color: {r: 1, g: 1, b: 1, a: 1}
+  m_RaycastTarget: 1
+  m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
+  m_Maskable: 1
+  m_OnCullStateChanged:
+    m_PersistentCalls:
+      m_Calls: []
+  m_Sprite: {fileID: 21300000, guid: a9fd011c609903f4cb1c55e69b6cf434, type: 3}
+  m_Type: 0
+  m_PreserveAspect: 0
+  m_FillCenter: 1
+  m_FillMethod: 4
+  m_FillAmount: 1
+  m_FillClockwise: 1
+  m_FillOrigin: 0
+  m_UseSpriteMesh: 0
+  m_PixelsPerUnitMultiplier: 1
+--- !u!222 &203113568
+CanvasRenderer:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 203113565}
+  m_CullTransparentMesh: 1
+--- !u!1 &218336701 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: -6689036041284674117, guid: a1a3acc27abdbd8468e22517c626f47b, type: 3}
+  m_PrefabInstance: {fileID: 143243647}
   m_PrefabAsset: {fileID: 0}
 --- !u!4 &229434510 stripped
 Transform:
@@ -758,6 +841,22 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 2774220344278030320, guid: a1a3acc27abdbd8468e22517c626f47b, type: 3}
   m_PrefabInstance: {fileID: 143243647}
   m_PrefabAsset: {fileID: 0}
+--- !u!114 &374640348
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 218336701}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7aa8b12719c9c0148a7c8ccadfc57f6d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::WatchSwitcher
+  temperatureIcon: {fileID: 1370225005}
+  megaphoneIcon: {fileID: 1050090602}
+  humidityIcon: {fileID: 897308962}
+  CO2Icon: {fileID: 993522854}
 --- !u!1001 &385417593
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -4002,6 +4101,7 @@ RectTransform:
   - {fileID: 1050090601}
   - {fileID: 897308961}
   - {fileID: 993522853}
+  - {fileID: 203113566}
   m_Father: {fileID: 374640347}
   m_LocalEulerAnglesHint: {x: 180.679, y: -2.4030151, z: -91.63501}
   m_AnchorMin: {x: 0, y: 0}
