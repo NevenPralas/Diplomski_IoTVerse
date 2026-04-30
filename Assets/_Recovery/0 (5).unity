@@ -3821,10 +3821,6 @@ MonoBehaviour:
   baselineGridY: 10
   minTemperature: 18
   maxTemperature: 22
-  lowTemperatureColor: {r: 0.831, g: 0.384, b: 0.102, a: 0.85}
-  middleTemperatureColor: {r: 0.753, g: 0.188, b: 0.188, a: 0.85}
-  highTemperatureColor: {r: 0.478, g: 0.063, b: 0.063, a: 0.85}
-  gradientColorCount: 3
   cellParticles: {fileID: 1415382492}
   generateRandomCellsOnStart: 1
   randomCellsCount: 12
@@ -4867,7 +4863,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8135023674665499069, guid: 58d0a4ac86f2348deb02f3880c71378e, type: 3}
       propertyPath: m_IsActive
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 8518324294302271954, guid: 58d0a4ac86f2348deb02f3880c71378e, type: 3}
       propertyPath: m_LocalPosition.x

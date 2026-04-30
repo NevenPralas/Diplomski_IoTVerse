@@ -5,6 +5,10 @@ using UnityEngine;
 [RequireComponent(typeof(Renderer))]
 public class ShaderGridHeatmap : MonoBehaviour
 {
+    /* relative time - relativno vrijeme od pocetka simulacije
+     * temperature - izmjerena temperatura
+     * (relative time, temperature) za 1 celiju
+     */
     [Serializable]
     public class CellTemperatureSample
     {
@@ -25,7 +29,7 @@ public class ShaderGridHeatmap : MonoBehaviour
     [SerializeField] private string heatmapTextureProperty = "_HeatmapTex";
     [SerializeField] private string gridSizeProperty = "_Size";
 
-    [Header("Grid Settings")]
+    [Header("Grid Settings")] // velicina celija
     [SerializeField] private int gridSizeX = 10;
     [SerializeField] private int gridSizeY = 10;
     [SerializeField] private float worldWidth = 10f;
@@ -39,16 +43,29 @@ public class ShaderGridHeatmap : MonoBehaviour
     [SerializeField] private float minTemperature = 18f;
     [SerializeField] private float maxTemperature = 22f;
 
+    [Header("Temperature Gradient Colors")]
+    [Tooltip("Boja za najnizu temperaturu, npr. minTemperature.")]
+    [SerializeField] private Color lowTemperatureColor = new Color(0.831f, 0.384f, 0.102f, 0.85f);
+
+    [Tooltip("Srednja boja gradijenta. Koristi se samo ako je Gradient Color Count postavljen na 3.")]
+    [SerializeField] private Color middleTemperatureColor = new Color(0.753f, 0.188f, 0.188f, 0.85f);
+
+    [Tooltip("Boja za najvisu temperaturu, npr. maxTemperature.")]
+    [SerializeField] private Color highTemperatureColor = new Color(0.478f, 0.063f, 0.063f, 0.85f);
+
+    [Tooltip("Ako je 2, koristi se prijelaz low -> high. Ako je 3, koristi se low -> middle -> high.")]
+    [SerializeField, Range(2, 3)] private int gradientColorCount = 3;
+
     [Header("Cell Particles")]
     [SerializeField] private HeatmapCellParticles cellParticles;
 
     [Header("Debug / Fake Preview")]
     [SerializeField] private bool generateRandomCellsOnStart = false;
     [SerializeField] private int randomCellsCount = 12;
-    [SerializeField] private bool clearBeforeRandomFill = true;
+    [SerializeField] private bool clearBeforeRandomFill = true; // prije random bojanja brise se postojeca heatmapa
 
     [Header("Cell History")]
-    [SerializeField] private float historyRetentionSeconds = 180f;
+    [SerializeField] private float historyRetentionSeconds = 180f; // koliko dugo se cuva povijest mjerenja za celiju
 
     private Texture2D heatmapTexture;
     private Material runtimeMaterial;
@@ -58,6 +75,7 @@ public class ShaderGridHeatmap : MonoBehaviour
 
     private float simulationStartTime;
 
+    // za kljuc (koordinate celije) daj vrijednost (mjerenja za tu celiju)
     private readonly Dictionary<Vector2Int, List<CellTemperatureSample>> cellHistory =
         new Dictionary<Vector2Int, List<CellTemperatureSample>>();
 
@@ -95,6 +113,9 @@ public class ShaderGridHeatmap : MonoBehaviour
         if (gridSizeY <= 0) gridSizeY = 1;
         if (baselineGridX <= 0f) baselineGridX = 1f;
         if (baselineGridY <= 0f) baselineGridY = 1f;
+
+        if (worldWidth <= 0f) worldWidth = 1f;
+        if (worldHeight <= 0f) worldHeight = 1f;
 
         cellWidth = worldWidth / gridSizeX;
         cellHeight = worldHeight / gridSizeY;
@@ -199,7 +220,7 @@ public class ShaderGridHeatmap : MonoBehaviour
 
         float relativeTime = Time.time - simulationStartTime;
 
-        // Nemoj spamati potpuno identične uzastopne zapise
+        // Nemoj spamati potpuno identicne uzastopne zapise
         if (samples.Count > 0)
         {
             CellTemperatureSample last = samples[samples.Count - 1];
@@ -254,16 +275,31 @@ public class ShaderGridHeatmap : MonoBehaviour
 
     private Color GetTemperatureColor(float temperature)
     {
+        // Ako su min i max isti, izbjegavamo dijeljenje / cudno mapiranje.
+        if (Mathf.Approximately(minTemperature, maxTemperature))
+            return highTemperatureColor;
+
+        // Pretvara temperaturu u vrijednost od 0 do 1.
+        // minTemperature -> 0
+        // maxTemperature -> 1
         float t = Mathf.InverseLerp(minTemperature, maxTemperature, temperature);
+        t = Mathf.Clamp01(t);
 
-        Color orange = new Color(0.831f, 0.384f, 0.102f, 0.85f);
-        Color midRed = new Color(0.753f, 0.188f, 0.188f, 0.85f);
-        Color darkRed = new Color(0.478f, 0.063f, 0.063f, 0.85f);
+        // Ako korisnik zeli samo 2 boje:
+        // lowTemperatureColor -> highTemperatureColor
+        if (gradientColorCount == 2)
+        {
+            return Color.Lerp(lowTemperatureColor, highTemperatureColor, t);
+        }
 
+        // Ako korisnik zeli 3 boje:
+        // lowTemperatureColor -> middleTemperatureColor -> highTemperatureColor
         if (t <= 0.5f)
-            return Color.Lerp(orange, midRed, t / 0.5f);
-        else
-            return Color.Lerp(midRed, darkRed, (t - 0.5f) / 0.5f);
+        {
+            return Color.Lerp(lowTemperatureColor, middleTemperatureColor, t / 0.5f);
+        }
+
+        return Color.Lerp(middleTemperatureColor, highTemperatureColor, (t - 0.5f) / 0.5f);
     }
 
     private void ApplyTexture()
