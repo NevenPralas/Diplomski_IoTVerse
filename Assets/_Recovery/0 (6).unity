@@ -8160,13 +8160,6 @@ MonoBehaviour:
   moveSpeed: 1.8
   turnSpeed: 80
   allowMovementOnlyWhenStanding: 1
-  enableAutonomousNavigation: 1
-  targetReachDistance: 0.12
-  slowDownDistance: 0.8
-  turnDeadZoneDegrees: 4
-  maxMoveAngleDegrees: 65
-  rotateToTargetBeforeMoving: 1
-  manualInputOverridesAuto: 1
   stepFrequency: 2.5
   thighSwingForward: 14
   calfSwingForward: 16
@@ -8185,11 +8178,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 00fe4b863b4173d44acc00ad048d5d99, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::TurtleThingsBoardFollower
-  baseUrl: http://192.168.0.109:8080
+  baseUrl: http://192.168.19.32:8080
   username: tenant@thingsboard.org
   password: tenant
   deviceId: 0f757400-1897-11f1-a1d2-e5a5a57c1784
-  go2Controller: {fileID: 981247534}
   rosMinX: 0
   rosMaxX: 11
   rosMinY: 0
@@ -8204,8 +8196,11 @@ MonoBehaviour:
   unityMaxZ: 2.41
   unityHeight: 0.5
   wallPadding: 0.15
+  smoothMovement: 1
+  smoothSpeed: 5
+  rotateTowardsMovement: 1
+  rotationSpeed: 6
   pollIntervalSeconds: 1
-  minimumTargetChangeDistance: 0.05
   heatmap: {fileID: 1415382490}
 --- !u!1001 &986238603
 PrefabInstance:
@@ -13967,7 +13962,6 @@ MonoBehaviour:
   username: tenant@thingsboard.org
   password: tenant
   deviceId: 0f757400-1897-11f1-a1d2-e5a5a57c1784
-  go2Controller: {fileID: 0}
   rosMinX: 0
   rosMaxX: 11
   rosMinY: 0
@@ -13982,8 +13976,11 @@ MonoBehaviour:
   unityMaxZ: 2.41
   unityHeight: 0.5
   wallPadding: 0.15
+  smoothMovement: 1
+  smoothSpeed: 5
+  rotateTowardsMovement: 1
+  rotationSpeed: 6
   pollIntervalSeconds: 1
-  minimumTargetChangeDistance: 0.05
   heatmap: {fileID: 1415382490}
 --- !u!114 &1643481196
 MonoBehaviour:
