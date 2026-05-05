@@ -46,6 +46,10 @@ public class TurtleThingsBoardFollower : MonoBehaviour
     [Header("Heatmap")]
     [SerializeField] private ShaderGridHeatmap heatmap;
 
+    [Header("Heatmap Recording")]
+    [Tooltip("Ako je uključeno, svake sekunde zapisuje zadnju ThingsBoard temperaturu u trenutnu ćeliju robota, čak i ako nije stigao novi telemetry sample.")]
+    [SerializeField] private bool paintCurrentCellEveryPoll = true;
+
     private string jwtToken;
     private Vector3 targetPosition;
     private Vector3 lastTargetPosition;
@@ -183,12 +187,18 @@ public class TurtleThingsBoardFollower : MonoBehaviour
             Vector3 newTarget = new Vector3(mappedX, unityHeight, mappedZ);
             newTarget = ClampToRoom(newTarget);
 
-            float.TryParse(
+            bool parsedTemperature = float.TryParse(
                 tempString,
                 NumberStyles.Float,
                 CultureInfo.InvariantCulture,
                 out float temperature
             );
+
+            if (!parsedTemperature)
+            {
+                Debug.LogWarning($"Ne mogu parsirati temperaturu. raw temperature='{tempString}'");
+                temperature = 0f;
+            }
 
             if (!hasFirstPosition)
             {
@@ -197,11 +207,6 @@ public class TurtleThingsBoardFollower : MonoBehaviour
                 hasFirstPosition = true;
 
                 go2Controller.SetNavigationTarget(newTarget);
-
-                if (heatmap != null)
-                    heatmap.PaintAtWorldPosition(newTarget, temperature);
-                else
-                    Debug.LogWarning("Heatmap referenca nije postavljena na TurtleThingsBoardFollower.");
             }
             else
             {
@@ -213,16 +218,32 @@ public class TurtleThingsBoardFollower : MonoBehaviour
                     targetPosition = newTarget;
 
                     go2Controller.SetNavigationTarget(newTarget);
-
-                    if (heatmap != null)
-                        heatmap.PaintAlongPath(lastTargetPosition, newTarget, temperature);
-                    else
-                        Debug.LogWarning("Heatmap referenca nije postavljena na TurtleThingsBoardFollower.");
                 }
             }
 
+            /*
+             * BITNA PROMJENA:
+             *
+             * Ovo se sada poziva svaki put kada Unity uspješno pročita latest telemetry
+             * iz ThingsBoarda.
+             *
+             * Ako ThingsBoard nije dobio novi podatak, endpoint i dalje vraća zadnju poznatu
+             * x/y/temperature vrijednost. Zato će se svake sekunde zapisati jedan sample
+             * samo u ćeliju gdje je robot trenutno.
+             *
+             * SpaceTimeCubeManager onda boji samo vremenske sliceove one ćelije koja stvarno
+             * ima sample u toj sekundi.
+             */
+            if (paintCurrentCellEveryPoll)
+            {
+                if (heatmap != null)
+                    heatmap.PaintAtWorldPosition(newTarget, temperature);
+                else
+                    Debug.LogWarning("Heatmap referenca nije postavljena na TurtleThingsBoardFollower.");
+            }
+
             Debug.Log(
-                $"ROS -> Go2 Target | rosX={rosX:F3}, rosY={rosY:F3}, temp={tempString} | " +
+                $"ROS -> Go2 Target | rosX={rosX:F3}, rosY={rosY:F3}, temp={temperature:F2} | " +
                 $"targetX={newTarget.x:F3}, targetZ={newTarget.z:F3}"
             );
         }

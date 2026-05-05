@@ -8185,7 +8185,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 00fe4b863b4173d44acc00ad048d5d99, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::TurtleThingsBoardFollower
-  baseUrl: http://192.168.19.32:8080
+  baseUrl: http://192.168.0.109:8080
   username: tenant@thingsboard.org
   password: tenant
   deviceId: 0f757400-1897-11f1-a1d2-e5a5a57c1784
@@ -8207,7 +8207,6 @@ MonoBehaviour:
   pollIntervalSeconds: 1
   minimumTargetChangeDistance: 0.05
   heatmap: {fileID: 1415382490}
-  paintCurrentCellEveryPoll: 1
 --- !u!1001 &986238603
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -12120,14 +12119,14 @@ MonoBehaviour:
   worldHeight: 10
   baselineGridX: 10
   baselineGridY: 10
-  minTemperature: 20
-  maxTemperature: 30
+  minTemperature: 18
+  maxTemperature: 22
   lowTemperatureColor: {r: 0.831, g: 0.384, b: 0.102, a: 0.85}
   middleTemperatureColor: {r: 0.753, g: 0.188, b: 0.188, a: 0.85}
   highTemperatureColor: {r: 0.478, g: 0.063, b: 0.063, a: 0.85}
   gradientColorCount: 3
   cellParticles: {fileID: 1415382492}
-  generateRandomCellsOnStart: 0
+  generateRandomCellsOnStart: 1
   randomCellsCount: 12
   clearBeforeRandomFill: 1
   historyRetentionSeconds: 180
@@ -13986,7 +13985,6 @@ MonoBehaviour:
   pollIntervalSeconds: 1
   minimumTargetChangeDistance: 0.05
   heatmap: {fileID: 1415382490}
-  paintCurrentCellEveryPoll: 1
 --- !u!114 &1643481196
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -15166,7 +15164,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8135023674665499069, guid: 58d0a4ac86f2348deb02f3880c71378e, type: 3}
       propertyPath: m_IsActive
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 8518324294302271954, guid: 58d0a4ac86f2348deb02f3880c71378e, type: 3}
       propertyPath: m_LocalPosition.x
