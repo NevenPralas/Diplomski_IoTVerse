@@ -6,7 +6,7 @@
 /// Dodano:
 /// - Autonomous navigation prema world targetu
 /// - TurtleThingsBoardFollower može pozvati SetNavigationTarget(...)
-/// - WASD + QE i dalje rade kao manual override
+/// - Ručno upravljanje: numpad 8/5/4/6 + 7/9
 /// - Robot ne skače direktno na target, nego hoda prema njemu
 /// </summary>
 public class Go2SimpleController : MonoBehaviour
@@ -135,12 +135,19 @@ public class Go2SimpleController : MonoBehaviour
         float manualStrafe = 0f;
         float manualTurn = 0f;
 
-        if (Input.GetKey(KeyCode.W)) manualForward = 1f;
-        if (Input.GetKey(KeyCode.S)) manualForward = -1f;
-        if (Input.GetKey(KeyCode.A)) manualStrafe = -1f;
-        if (Input.GetKey(KeyCode.D)) manualStrafe = 1f;
-        if (Input.GetKey(KeyCode.Q)) manualTurn = -1f;
-        if (Input.GetKey(KeyCode.E)) manualTurn = 1f;
+        // Numpad kontrole:
+        // 8 = W / naprijed
+        // 5 = S / nazad
+        // 4 = A / strafe lijevo
+        // 6 = D / strafe desno
+        // 7 = Q / rotacija lijevo
+        // 9 = E / rotacija desno
+        if (Input.GetKey(KeyCode.Keypad8)) manualForward = 1f;
+        if (Input.GetKey(KeyCode.Keypad5)) manualForward = -1f;
+        if (Input.GetKey(KeyCode.Keypad4)) manualStrafe = -1f;
+        if (Input.GetKey(KeyCode.Keypad6)) manualStrafe = 1f;
+        if (Input.GetKey(KeyCode.Keypad7)) manualTurn = -1f;
+        if (Input.GetKey(KeyCode.Keypad9)) manualTurn = 1f;
 
         bool hasManualInput =
             Mathf.Abs(manualForward) > 0.01f ||

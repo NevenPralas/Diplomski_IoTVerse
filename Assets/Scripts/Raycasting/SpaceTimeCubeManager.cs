@@ -240,11 +240,26 @@ public class SpaceTimeCubeManager : MonoBehaviour
                 $"FilledSlice_{secondIndex}",
                 new Vector3(0f, yCenter, 0f),
                 new Vector3(sliceWidth, filledSliceHeight, sliceDepth),
-                c);
-        }
+                c,
+                latestSample.temperature,
+                latestSample.relativeTime,
+                gridX,
+                gridY,
+                secondIndex);
+        } 
     }
 
-    private void CreateFilledBandPiece(Transform parent, string pieceName, Vector3 localPosition, Vector3 localScale, Color color)
+    private void CreateFilledBandPiece(
+    Transform parent,
+    string pieceName,
+    Vector3 localPosition,
+    Vector3 localScale,
+    Color color,
+    float temperature,
+    float relativeTime,
+    int gridX,
+    int gridY,
+    int secondIndex)
     {
         GameObject piece = GameObject.CreatePrimitive(PrimitiveType.Cube);
         piece.name = pieceName;
@@ -253,8 +268,14 @@ public class SpaceTimeCubeManager : MonoBehaviour
         piece.transform.localScale = localScale;
 
         Collider col = piece.GetComponent<Collider>();
+
         if (col != null)
-            Destroy(col);
+        {
+            col.isTrigger = true;
+        }
+
+        SpaceTimeSliceData data = piece.AddComponent<SpaceTimeSliceData>();
+        data.Init(temperature, relativeTime, gridX, gridY, secondIndex);
 
         Renderer renderer = piece.GetComponent<Renderer>();
         renderer.material = CreateRuntimeBandMaterial(color);

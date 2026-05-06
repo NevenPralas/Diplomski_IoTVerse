@@ -1399,6 +1399,72 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Unity.Robotics.UrdfImporter::Unity.Robotics.UrdfImporter.UrdfCollision
   geometryType: 0
+--- !u!1 &175535315
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 175535317}
+  - component: {fileID: 175535316}
+  m_Layer: 0
+  m_Name: SpaceTimeSliceTooltipManager
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &175535316
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 175535315}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 42c4fcd8516619547834613b36c1bda1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SpaceTimeSliceTooltip
+  rightControllerNearFarInteractor: {fileID: 935764301}
+  rightControllerRayOrigin: {fileID: 935764300}
+  raycastDistance: 50
+  hoverLayerMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  debugRay: 1
+  tooltipOffsetRight: 0.12
+  tooltipOffsetUp: 0.06
+  fontSize: 48
+  characterSize: 0.018
+  textColor: {r: 1, g: 1, b: 1, a: 1}
+  labelFont: {fileID: 0}
+  showWhiteOutline: 1
+  outlineColor: {r: 1, g: 1, b: 1, a: 1}
+  outlineExpand: 0.015
+  outlineLineWidth: 0.01
+  showPointer: 1
+  pointerColor: {r: 1, g: 1, b: 1, a: 1}
+  pointerWidth: 0.01
+  pointerDefaultLength: 3
+  pointerStopsAtHit: 1
+--- !u!4 &175535317
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 175535315}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0.08379, y: 0.3312, z: 0.09084}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!4 &184483748 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 2563496969622287784, guid: 1be5a6f65ed9ad84d8bd2088302d8b6a, type: 3}
@@ -2096,11 +2162,11 @@ MeshCollider:
     serializedVersion: 2
     m_Bits: 0
   m_LayerOverridePriority: 0
-  m_IsTrigger: 0
+  m_IsTrigger: 1
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 5
-  m_Convex: 0
+  m_Convex: 1
   m_CookingOptions: 30
   m_Mesh: {fileID: 10210, guid: 0000000000000000e000000000000000, type: 0}
 --- !u!23 &306283543
@@ -12120,8 +12186,8 @@ MonoBehaviour:
   worldHeight: 10
   baselineGridX: 10
   baselineGridY: 10
-  minTemperature: 20
-  maxTemperature: 30
+  minTemperature: 25
+  maxTemperature: 28
   lowTemperatureColor: {r: 0.831, g: 0.384, b: 0.102, a: 0.85}
   middleTemperatureColor: {r: 0.753, g: 0.188, b: 0.188, a: 0.85}
   highTemperatureColor: {r: 0.478, g: 0.063, b: 0.063, a: 0.85}
@@ -16643,3 +16709,4 @@ SceneRoots:
   - {fileID: 715297552}
   - {fileID: 981247533}
   - {fileID: 1643481193}
+  - {fileID: 175535317}
