@@ -8222,7 +8222,7 @@ MonoBehaviour:
   lieThigh: 130
   lieCalf: -165
   poseLerpSpeed: 5
-  startStanding: 1
+  startStanding: 0
   moveSpeed: 1.8
   turnSpeed: 80
   allowMovementOnlyWhenStanding: 1
@@ -8233,6 +8233,8 @@ MonoBehaviour:
   maxMoveAngleDegrees: 65
   rotateToTargetBeforeMoving: 1
   manualInputOverridesAuto: 1
+  allowExternalPostureControl: 1
+  logPostureChanges: 1
   stepFrequency: 2.5
   thighSwingForward: 14
   calfSwingForward: 16
@@ -8256,12 +8258,12 @@ MonoBehaviour:
   password: tenant
   deviceId: 0f757400-1897-11f1-a1d2-e5a5a57c1784
   go2Controller: {fileID: 981247534}
-  rosMinX: 0
-  rosMaxX: 11
-  rosMinY: 0
-  rosMaxY: 11
-  rosReferenceX: 5.544445
-  rosReferenceY: 5.544445
+  rosMinX: -2
+  rosMaxX: 2
+  rosMinY: -2
+  rosMaxY: 2
+  rosReferenceX: 0
+  rosReferenceY: 0
   unityCenterX: 0
   unityCenterZ: 0
   unityMinX: -3.27
@@ -8274,6 +8276,9 @@ MonoBehaviour:
   minimumTargetChangeDistance: 0.05
   heatmap: {fileID: 1415382490}
   paintCurrentCellEveryPoll: 1
+  enablePostureSync: 1
+  standingBodyHeightThreshold: 0.18
+  logPostureSync: 1
 --- !u!1001 &986238603
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -14053,6 +14058,9 @@ MonoBehaviour:
   minimumTargetChangeDistance: 0.05
   heatmap: {fileID: 1415382490}
   paintCurrentCellEveryPoll: 1
+  enablePostureSync: 1
+  standingBodyHeightThreshold: 0.18
+  logPostureSync: 1
 --- !u!114 &1643481196
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -15232,7 +15240,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8135023674665499069, guid: 58d0a4ac86f2348deb02f3880c71378e, type: 3}
       propertyPath: m_IsActive
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 8518324294302271954, guid: 58d0a4ac86f2348deb02f3880c71378e, type: 3}
       propertyPath: m_LocalPosition.x

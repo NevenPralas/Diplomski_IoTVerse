@@ -1,13 +1,13 @@
 ﻿using UnityEngine;
 
 /// <summary>
-/// Go2 Realistic Trot Controller v5
+/// Go2 Realistic Trot Controller
 ///
 /// Dodano:
 /// - Autonomous navigation prema world targetu
 /// - TurtleThingsBoardFollower može pozvati SetNavigationTarget(...)
 /// - Ručno upravljanje: numpad 8/5/4/6 + 7/9
-/// - Robot ne skače direktno na target, nego hoda prema njemu
+/// - Vanjska kontrola posture: SetStandingState(...)
 /// </summary>
 public class Go2SimpleController : MonoBehaviour
 {
@@ -27,7 +27,7 @@ public class Go2SimpleController : MonoBehaviour
     public float standThigh = 35f;
     public float standCalf = -70f;
 
-    [Header("Lie Pose")]
+    [Header("Lie / Sit Pose")]
     public float lieHip = 0f;
     public float lieThigh = 130f;
     public float lieCalf = -165f;
@@ -49,6 +49,10 @@ public class Go2SimpleController : MonoBehaviour
     public float maxMoveAngleDegrees = 65f;
     public bool rotateToTargetBeforeMoving = true;
     public bool manualInputOverridesAuto = true;
+
+    [Header("External Posture Control")]
+    [SerializeField] private bool allowExternalPostureControl = true;
+    [SerializeField] private bool logPostureChanges = true;
 
     [Header("Trot Gait")]
     public float stepFrequency = 2.5f;
@@ -86,7 +90,6 @@ public class Go2SimpleController : MonoBehaviour
         rootTf = rootBody.transform;
 
         yaw = rootTf.eulerAngles.y;
-
         robotCenter = ComputeHipCenter();
 
         Quaternion initRot = Quaternion.Euler(0f, yaw, 0f);
@@ -129,19 +132,43 @@ public class Go2SimpleController : MonoBehaviour
         return robotCenter;
     }
 
+    public bool IsStanding()
+    {
+        return isStanding;
+    }
+
+    public void SetStandingState(bool shouldStand)
+    {
+        if (!allowExternalPostureControl)
+            return;
+
+        if (isStanding == shouldStand)
+            return;
+
+        isStanding = shouldStand;
+
+        if (!isStanding)
+        {
+            forwardInput = 0f;
+            strafeInput = 0f;
+            turnInput = 0f;
+            hasNavigationTarget = false;
+        }
+
+        if (logPostureChanges)
+        {
+            Debug.Log(shouldStand
+                ? "[Go2] External posture command: STAND"
+                : "[Go2] External posture command: SIT / LIE");
+        }
+    }
+
     void ReadInput()
     {
         float manualForward = 0f;
         float manualStrafe = 0f;
         float manualTurn = 0f;
 
-        // Numpad kontrole:
-        // 8 = W / naprijed
-        // 5 = S / nazad
-        // 4 = A / strafe lijevo
-        // 6 = D / strafe desno
-        // 7 = Q / rotacija lijevo
-        // 9 = E / rotacija desno
         if (Input.GetKey(KeyCode.Keypad8)) manualForward = 1f;
         if (Input.GetKey(KeyCode.Keypad5)) manualForward = -1f;
         if (Input.GetKey(KeyCode.Keypad4)) manualStrafe = -1f;
@@ -195,38 +222,23 @@ public class Go2SimpleController : MonoBehaviour
         float angleError = Mathf.DeltaAngle(yaw, desiredYaw);
 
         if (Mathf.Abs(angleError) > turnDeadZoneDegrees)
-        {
             turnInput = Mathf.Clamp(angleError / 45f, -1f, 1f);
-        }
         else
-        {
             turnInput = 0f;
-        }
 
         bool canMoveForward = true;
 
         if (rotateToTargetBeforeMoving)
-        {
             canMoveForward = Mathf.Abs(angleError) <= maxMoveAngleDegrees;
-        }
 
-        if (canMoveForward)
-        {
-            float speedFactor = Mathf.Clamp01(distance / slowDownDistance);
-            forwardInput = speedFactor;
-        }
-        else
-        {
-            forwardInput = 0f;
-        }
-
+        forwardInput = canMoveForward ? Mathf.Clamp01(distance / slowDownDistance) : 0f;
         strafeInput = 0f;
     }
 
     void HandlePoseToggle()
     {
         if (Input.GetKeyDown(KeyCode.Space))
-            isStanding = !isStanding;
+            SetStandingState(!isStanding);
     }
 
     void SmoothPose()
@@ -281,7 +293,6 @@ public class Go2SimpleController : MonoBehaviour
         if (Mathf.Abs(forwardInput) > 0.01f)
         {
             float forwardSign = Mathf.Sign(forwardInput);
-
             dT += s * thighSwingForward * -forwardSign;
             dC -= s * calfSwingForward * -forwardSign;
         }

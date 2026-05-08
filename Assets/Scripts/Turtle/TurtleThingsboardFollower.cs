@@ -17,15 +17,15 @@ public class TurtleThingsBoardFollower : MonoBehaviour
     [Header("Go2 Robot Controller")]
     [SerializeField] private Go2SimpleController go2Controller;
 
-    [Header("ROS Bounds (turtlesim)")]
-    [SerializeField] private float rosMinX = 0f;
-    [SerializeField] private float rosMaxX = 11f;
-    [SerializeField] private float rosMinY = 0f;
-    [SerializeField] private float rosMaxY = 11f;
+    [Header("ROS / Go2 Bounds")]
+    [SerializeField] private float rosMinX = -0.5f;
+    [SerializeField] private float rosMaxX = 0.5f;
+    [SerializeField] private float rosMinY = -0.5f;
+    [SerializeField] private float rosMaxY = 0.5f;
 
-    [Header("ROS Reference -> Unity Center")]
-    [SerializeField] private float rosReferenceX = 5.544445f;
-    [SerializeField] private float rosReferenceY = 5.544445f;
+    [Header("ROS / Go2 Reference -> Unity Center")]
+    [SerializeField] private float rosReferenceX = 0f;
+    [SerializeField] private float rosReferenceY = 0f;
     [SerializeField] private float unityCenterX = 0f;
     [SerializeField] private float unityCenterZ = 0f;
 
@@ -47,13 +47,25 @@ public class TurtleThingsBoardFollower : MonoBehaviour
     [SerializeField] private ShaderGridHeatmap heatmap;
 
     [Header("Heatmap Recording")]
-    [Tooltip("Ako je uključeno, svake sekunde zapisuje zadnju ThingsBoard temperaturu u trenutnu ćeliju robota, čak i ako nije stigao novi telemetry sample.")]
+    [Tooltip("Ako je uključeno, svake sekunde zapisuje temperaturu u trenutnu ćeliju robota.")]
     [SerializeField] private bool paintCurrentCellEveryPoll = true;
+
+    [Header("Real Go2 Posture Sync")]
+    [SerializeField] private bool enablePostureSync = true;
+
+    [Tooltip("Koristi se samo ako posture/is_standing nisu dostupni. Iz tvojih mjerenja: standing ≈ 0.32, sitting ≈ 0.067.")]
+    [SerializeField] private float standingBodyHeightThreshold = 0.18f;
+
+    [Tooltip("Ispisuje promjenu posture u Unity Console.")]
+    [SerializeField] private bool logPostureSync = true;
 
     private string jwtToken;
     private Vector3 targetPosition;
     private Vector3 lastTargetPosition;
     private bool hasFirstPosition = false;
+
+    private bool hasAppliedPosture = false;
+    private bool lastAppliedStanding = true;
 
     [Serializable]
     private class LoginRequest
@@ -140,7 +152,7 @@ public class TurtleThingsBoardFollower : MonoBehaviour
 
     private IEnumerator GetLatestTelemetry()
     {
-        string keys = "x,y,temperature";
+        string keys = "x,y,temperature,posture,body_height,is_standing";
         string url = $"{baseUrl}/api/plugins/telemetry/DEVICE/{deviceId}/values/timeseries?keys={keys}";
 
         using UnityWebRequest request = UnityWebRequest.Get(url);
@@ -160,6 +172,12 @@ public class TurtleThingsBoardFollower : MonoBehaviour
         string xString = ExtractLatestValue(rawJson, "x");
         string yString = ExtractLatestValue(rawJson, "y");
         string tempString = ExtractLatestValue(rawJson, "temperature");
+
+        string postureString = ExtractLatestValue(rawJson, "posture");
+        string bodyHeightString = ExtractLatestValue(rawJson, "body_height");
+        string isStandingString = ExtractLatestValue(rawJson, "is_standing");
+
+        ApplyPostureFromTelemetry(postureString, isStandingString, bodyHeightString);
 
         if (float.TryParse(xString, NumberStyles.Float, CultureInfo.InvariantCulture, out float rosX) &&
             float.TryParse(yString, NumberStyles.Float, CultureInfo.InvariantCulture, out float rosY))
@@ -221,19 +239,6 @@ public class TurtleThingsBoardFollower : MonoBehaviour
                 }
             }
 
-            /*
-             * BITNA PROMJENA:
-             *
-             * Ovo se sada poziva svaki put kada Unity uspješno pročita latest telemetry
-             * iz ThingsBoarda.
-             *
-             * Ako ThingsBoard nije dobio novi podatak, endpoint i dalje vraća zadnju poznatu
-             * x/y/temperature vrijednost. Zato će se svake sekunde zapisati jedan sample
-             * samo u ćeliju gdje je robot trenutno.
-             *
-             * SpaceTimeCubeManager onda boji samo vremenske sliceove one ćelije koja stvarno
-             * ima sample u toj sekundi.
-             */
             if (paintCurrentCellEveryPoll)
             {
                 if (heatmap != null)
@@ -243,13 +248,73 @@ public class TurtleThingsBoardFollower : MonoBehaviour
             }
 
             Debug.Log(
-                $"ROS -> Go2 Target | rosX={rosX:F3}, rosY={rosY:F3}, temp={temperature:F2} | " +
+                $"Go2 ThingsBoard -> Unity | x={rosX:F4}, y={rosY:F4}, temp={temperature:F2}, " +
+                $"posture='{postureString}', body_height='{bodyHeightString}' | " +
                 $"targetX={newTarget.x:F3}, targetZ={newTarget.z:F3}"
             );
         }
         else
         {
             Debug.LogWarning($"Ne mogu parsirati x/y vrijednosti. raw x='{xString}', y='{yString}'");
+        }
+    }
+
+    private void ApplyPostureFromTelemetry(string posture, string isStandingRaw, string bodyHeightRaw)
+    {
+        if (!enablePostureSync || go2Controller == null)
+            return;
+
+        bool? shouldStand = null;
+
+        if (!string.IsNullOrEmpty(posture) && posture != "0")
+        {
+            string normalizedPosture = posture.Trim().ToLowerInvariant();
+
+            if (normalizedPosture == "standing" || normalizedPosture == "stand")
+                shouldStand = true;
+            else if (
+                normalizedPosture == "sitting" ||
+                normalizedPosture == "sit" ||
+                normalizedPosture == "lying" ||
+                normalizedPosture == "lie" ||
+                normalizedPosture == "down")
+                shouldStand = false;
+        }
+
+        if (shouldStand == null && !string.IsNullOrEmpty(isStandingRaw))
+        {
+            string normalized = isStandingRaw.Trim().ToLowerInvariant();
+
+            if (normalized == "true" || normalized == "1")
+                shouldStand = true;
+            else if (normalized == "false" || normalized == "0")
+                shouldStand = false;
+        }
+
+        if (shouldStand == null &&
+            float.TryParse(bodyHeightRaw, NumberStyles.Float, CultureInfo.InvariantCulture, out float bodyHeight))
+        {
+            shouldStand = bodyHeight >= standingBodyHeightThreshold;
+        }
+
+        if (shouldStand == null)
+            return;
+
+        if (hasAppliedPosture && lastAppliedStanding == shouldStand.Value)
+            return;
+
+        hasAppliedPosture = true;
+        lastAppliedStanding = shouldStand.Value;
+
+        go2Controller.SetStandingState(shouldStand.Value);
+
+        if (logPostureSync)
+        {
+            Debug.Log(
+                shouldStand.Value
+                    ? $"[Posture Sync] Real Go2 is STANDING. posture='{posture}', body_height='{bodyHeightRaw}'"
+                    : $"[Posture Sync] Real Go2 is SITTING / LYING. posture='{posture}', body_height='{bodyHeightRaw}'"
+            );
         }
     }
 
@@ -297,7 +362,7 @@ public class TurtleThingsBoardFollower : MonoBehaviour
 
     private string ExtractLatestValue(string json, string key)
     {
-        string pattern = $"\"{key}\":\\[\\{{\"ts\":\\d+,\"value\":\"([^\"]+)\"\\}}\\]";
+        string pattern = $"\"{key}\":\\[\\{{\"ts\":\\d+,\"value\":\"([^\"]*)\"\\}}\\]";
         Match match = Regex.Match(json, pattern);
 
         if (match.Success)
