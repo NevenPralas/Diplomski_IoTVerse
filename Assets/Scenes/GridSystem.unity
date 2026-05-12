@@ -8222,10 +8222,10 @@ MonoBehaviour:
   lieThigh: 130
   lieCalf: -165
   poseLerpSpeed: 5
-  startStanding: 0
+  startStanding: 1
   moveSpeed: 1.8
   turnSpeed: 80
-  allowMovementOnlyWhenStanding: 1
+  allowMovementOnlyWhenStanding: 0
   enableAutonomousNavigation: 1
   targetReachDistance: 0.12
   slowDownDistance: 0.8
@@ -8253,7 +8253,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 00fe4b863b4173d44acc00ad048d5d99, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::TurtleThingsBoardFollower
-  baseUrl: http://192.168.19.32:8080
+  baseUrl: http://192.168.23.176:8080
   username: tenant@thingsboard.org
   password: tenant
   deviceId: 0f757400-1897-11f1-a1d2-e5a5a57c1784
@@ -9973,6 +9973,15 @@ MonoBehaviour:
     serializedVersion: 2
     m_Bits: 64
   debugRay: 1
+  showAverageTemperatureTooltip: 1
+  hideAverageTooltipWhileColumnIsOpen: 1
+  averageTemperatureWindowSeconds: 60
+  tooltipOffsetRight: 0.12
+  tooltipOffsetUp: 0.06
+  tooltipFontSize: 48
+  tooltipCharacterSize: 0.018
+  tooltipTextColor: {r: 1, g: 1, b: 1, a: 1}
+  tooltipFont: {fileID: 0}
 --- !u!4 &1181641075
 Transform:
   m_ObjectHideFlags: 0
@@ -12191,8 +12200,8 @@ MonoBehaviour:
   worldHeight: 10
   baselineGridX: 10
   baselineGridY: 10
-  minTemperature: 25
-  maxTemperature: 28
+  minTemperature: 26.5
+  maxTemperature: 28.5
   lowTemperatureColor: {r: 0.831, g: 0.384, b: 0.102, a: 0.85}
   middleTemperatureColor: {r: 0.753, g: 0.188, b: 0.188, a: 0.85}
   highTemperatureColor: {r: 0.478, g: 0.063, b: 0.063, a: 0.85}
@@ -12202,6 +12211,8 @@ MonoBehaviour:
   randomCellsCount: 12
   clearBeforeRandomFill: 1
   historyRetentionSeconds: 180
+  useAverageTemperatureForCellColor: 1
+  averageTemperatureWindowSeconds: 60
 --- !u!114 &1415382491
 MonoBehaviour:
   m_ObjectHideFlags: 0

@@ -67,6 +67,13 @@ public class ShaderGridHeatmap : MonoBehaviour
     [Header("Cell History")]
     [SerializeField] private float historyRetentionSeconds = 180f; // koliko dugo se cuva povijest mjerenja za celiju
 
+    [Header("Heatmap Display Aggregation")]
+    [Tooltip("Ako je ukljuceno, osnovna boja celije prikazuje srednju temperaturu umjesto zadnje izmjerene temperature.")]
+    [SerializeField] private bool useAverageTemperatureForCellColor = true;
+
+    [Tooltip("Vremenski prozor za srednju temperaturu u sekundama. 0 ili manje znaci prosjek svih sacuvanih mjerenja za celiju.")]
+    [SerializeField] private float averageTemperatureWindowSeconds = 60f;
+
     private Texture2D heatmapTexture;
     private Material runtimeMaterial;
     private float cellWidth;
@@ -199,13 +206,17 @@ public class ShaderGridHeatmap : MonoBehaviour
         if (gridX < 0 || gridX >= gridSizeX || gridY < 0 || gridY >= gridSizeY)
             return;
 
-        Color color = GetTemperatureColor(temperature);
-        heatmapTexture.SetPixel(gridSizeX - 1 - gridX, gridSizeY - 1 - gridY, color);
-
+        // Prvo spremamo novo mjerenje, a tek zatim racunamo vrijednost koja ce se
+        // prikazati na osnovnoj heatmapi. Tako boja celije predstavlja srednju
+        // temperaturu celije, a ne samo zadnje izmjereno ocitanje.
         RecordCellSample(gridX, gridY, temperature);
 
+        float displayedTemperature = GetDisplayedTemperatureForCell(gridX, gridY, temperature);
+        Color color = GetTemperatureColor(displayedTemperature);
+        heatmapTexture.SetPixel(gridSizeX - 1 - gridX, gridSizeY - 1 - gridY, color);
+
         if (cellParticles != null)
-            cellParticles.ShowOrUpdateCellParticle(gridX, gridY, temperature);
+            cellParticles.ShowOrUpdateCellParticle(gridX, gridY, displayedTemperature);
     }
 
     private void RecordCellSample(int gridX, int gridY, float temperature)
@@ -236,6 +247,50 @@ public class ShaderGridHeatmap : MonoBehaviour
 
         float minAllowedTime = relativeTime - historyRetentionSeconds;
         samples.RemoveAll(sample => sample.relativeTime < minAllowedTime);
+    }
+
+    private float GetDisplayedTemperatureForCell(int gridX, int gridY, float fallbackTemperature)
+    {
+        if (!useAverageTemperatureForCellColor)
+            return fallbackTemperature;
+
+        if (TryGetAverageTemperatureForCell(gridX, gridY, averageTemperatureWindowSeconds, out float averageTemperature))
+            return averageTemperature;
+
+        return fallbackTemperature;
+    }
+
+    public bool TryGetAverageTemperatureForCell(int gridX, int gridY, float windowSeconds, out float averageTemperature)
+    {
+        averageTemperature = 0f;
+
+        Vector2Int key = new Vector2Int(gridX, gridY);
+
+        if (!cellHistory.TryGetValue(key, out List<CellTemperatureSample> samples) || samples.Count == 0)
+            return false;
+
+        float currentTime = GetRelativeSimulationTime();
+        float minAllowedTime = windowSeconds > 0f ? currentTime - windowSeconds : float.NegativeInfinity;
+
+        float sum = 0f;
+        int count = 0;
+
+        for (int i = 0; i < samples.Count; i++)
+        {
+            CellTemperatureSample sample = samples[i];
+
+            if (sample.relativeTime < minAllowedTime)
+                continue;
+
+            sum += sample.temperature;
+            count++;
+        }
+
+        if (count == 0)
+            return false;
+
+        averageTemperature = sum / count;
+        return true;
     }
 
     public List<CellTemperatureSample> GetCellHistory(int gridX, int gridY)
