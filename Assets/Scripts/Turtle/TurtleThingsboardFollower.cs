@@ -50,6 +50,16 @@ public class TurtleThingsBoardFollower : MonoBehaviour
     [Tooltip("Ako je uključeno, svake sekunde zapisuje temperaturu u trenutnu ćeliju robota.")]
     [SerializeField] private bool paintCurrentCellEveryPoll = true;
 
+    [Header("Noise Trail")]
+    [Tooltip("3D prostorno-vremenska putanja buke.")]
+    [SerializeField] private SpatioTemporalNoiseTrail noiseTrail;
+
+    [Tooltip("Ako je uključeno, vrijednost noise iz ThingsBoarda dodaje se u 3D putanju buke.")]
+    [SerializeField] private bool addNoiseTrailSampleEveryPoll = true;
+
+    [Tooltip("Ako je uključeno, pri svakom dohvatu ispisuje noise vrijednost u Console.")]
+    [SerializeField] private bool logNoiseTelemetry = true;
+
     [Header("Real Go2 Posture Sync")]
     [SerializeField] private bool enablePostureSync = true;
 
@@ -152,7 +162,7 @@ public class TurtleThingsBoardFollower : MonoBehaviour
 
     private IEnumerator GetLatestTelemetry()
     {
-        string keys = "x,y,temperature,posture,body_height,is_standing";
+        string keys = "x,y,temperature,noise,posture,body_height,is_standing";
         string url = $"{baseUrl}/api/plugins/telemetry/DEVICE/{deviceId}/values/timeseries?keys={keys}";
 
         using UnityWebRequest request = UnityWebRequest.Get(url);
@@ -172,6 +182,7 @@ public class TurtleThingsBoardFollower : MonoBehaviour
         string xString = ExtractLatestValue(rawJson, "x");
         string yString = ExtractLatestValue(rawJson, "y");
         string tempString = ExtractLatestValue(rawJson, "temperature");
+        string noiseString = ExtractLatestValue(rawJson, "noise");
 
         string postureString = ExtractLatestValue(rawJson, "posture");
         string bodyHeightString = ExtractLatestValue(rawJson, "body_height");
@@ -218,6 +229,19 @@ public class TurtleThingsBoardFollower : MonoBehaviour
                 temperature = 0f;
             }
 
+            bool parsedNoise = float.TryParse(
+                noiseString,
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture,
+                out float noiseDb
+            );
+
+            if (!parsedNoise)
+            {
+                Debug.LogWarning($"Ne mogu parsirati buku. raw noise='{noiseString}'");
+                noiseDb = 0f;
+            }
+
             if (!hasFirstPosition)
             {
                 targetPosition = newTarget;
@@ -247,11 +271,31 @@ public class TurtleThingsBoardFollower : MonoBehaviour
                     Debug.LogWarning("Heatmap referenca nije postavljena na TurtleThingsBoardFollower.");
             }
 
-            Debug.Log(
-                $"Go2 ThingsBoard -> Unity | x={rosX:F4}, y={rosY:F4}, temp={temperature:F2}, " +
-                $"posture='{postureString}', body_height='{bodyHeightString}' | " +
-                $"targetX={newTarget.x:F3}, targetZ={newTarget.z:F3}"
-            );
+            if (addNoiseTrailSampleEveryPoll)
+            {
+                if (noiseTrail != null)
+                    noiseTrail.AddSample(newTarget, noiseDb);
+                else
+                    Debug.LogWarning("NoiseTrail referenca nije postavljena na TurtleThingsBoardFollower.");
+            }
+
+            if (logNoiseTelemetry)
+            {
+                Debug.Log(
+                    $"Go2 ThingsBoard -> Unity | x={rosX:F4}, y={rosY:F4}, " +
+                    $"temp={temperature:F2}, noise={noiseDb:F2} dBA, " +
+                    $"posture='{postureString}', body_height='{bodyHeightString}' | " +
+                    $"targetX={newTarget.x:F3}, targetZ={newTarget.z:F3}"
+                );
+            }
+            else
+            {
+                Debug.Log(
+                    $"Go2 ThingsBoard -> Unity | x={rosX:F4}, y={rosY:F4}, temp={temperature:F2}, " +
+                    $"posture='{postureString}', body_height='{bodyHeightString}' | " +
+                    $"targetX={newTarget.x:F3}, targetZ={newTarget.z:F3}"
+                );
+            }
         }
         else
         {
