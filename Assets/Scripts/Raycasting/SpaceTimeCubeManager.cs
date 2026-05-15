@@ -174,6 +174,7 @@ public class SpaceTimeCubeManager : MonoBehaviour
         mainColumn.transform.localScale = new Vector3(cellW, height, cellD);
 
         Collider col = mainColumn.GetComponent<Collider>();
+
         if (col != null)
             Destroy(col);
 
@@ -193,6 +194,7 @@ public class SpaceTimeCubeManager : MonoBehaviour
         if (animateMainColumn)
         {
             ColumnAnimator animator = mainColumn.GetComponent<ColumnAnimator>();
+
             if (animator == null)
                 animator = mainColumn.AddComponent<ColumnAnimator>();
 
@@ -211,7 +213,6 @@ public class SpaceTimeCubeManager : MonoBehaviour
             return;
 
         float currentTime = heatmap.GetRelativeSimulationTime();
-        float oldestVisibleTime = Mathf.Max(0f, currentTime - visibleSeconds);
 
         float sliceHeight = height / visibleSeconds;
         float filledSliceHeight = Mathf.Max(0.002f, sliceHeight - verticalBandGap);
@@ -221,8 +222,30 @@ public class SpaceTimeCubeManager : MonoBehaviour
 
         for (int secondIndex = 0; secondIndex < visibleSeconds; secondIndex++)
         {
-            float bucketStart = oldestVisibleTime + secondIndex;
-            float bucketEnd = bucketStart + 1f;
+            /*
+             * Obrnuta vremenska os:
+             *
+             * secondIndex = 0  -> najnoviji interval, sada / zadnja sekunda
+             * secondIndex = 1  -> prije 1-2 sekunde
+             * secondIndex = 30 -> prije oko 30 sekundi
+             * secondIndex = 59 -> prije oko 59-60 sekundi
+             *
+             * Y pozicija ostaje direktno vezana uz secondIndex:
+             * secondIndex = 0  -> dno stupca
+             * secondIndex = 59 -> vrh stupca
+             *
+             * Rezultat:
+             * dno = sada
+             * vrh = prošlost
+             */
+
+            float bucketEnd = currentTime - secondIndex;
+            float bucketStart = bucketEnd - 1f;
+
+            if (bucketEnd < 0f)
+                continue;
+
+            bucketStart = Mathf.Max(0f, bucketStart);
 
             ShaderGridHeatmap.CellTemperatureSample latestSample =
                 GetLatestSampleInRange(history, bucketStart, bucketEnd);
@@ -246,20 +269,20 @@ public class SpaceTimeCubeManager : MonoBehaviour
                 gridX,
                 gridY,
                 secondIndex);
-        } 
+        }
     }
 
     private void CreateFilledBandPiece(
-    Transform parent,
-    string pieceName,
-    Vector3 localPosition,
-    Vector3 localScale,
-    Color color,
-    float temperature,
-    float relativeTime,
-    int gridX,
-    int gridY,
-    int secondIndex)
+        Transform parent,
+        string pieceName,
+        Vector3 localPosition,
+        Vector3 localScale,
+        Color color,
+        float temperature,
+        float relativeTime,
+        int gridX,
+        int gridY,
+        int secondIndex)
     {
         GameObject piece = GameObject.CreatePrimitive(PrimitiveType.Cube);
         piece.name = pieceName;
@@ -290,63 +313,67 @@ public class SpaceTimeCubeManager : MonoBehaviour
         float xOffset = (cellW * 0.5f) + labelHorizontalOffset;
         float zOffset = 0f;
 
+        /*
+         * Obrnuta vremenska os:
+         *
+         * dno stupca    = sada
+         * sredina       = prije oko 30 sekundi
+         * vrh stupca    = prije oko 60 sekundi
+         *
+         * Ovo je isto kao kod SpatioTemporalNoiseTrail:
+         * trenutni uzorak je dolje, a stariji uzorci idu prema gore.
+         */
+
         if (elapsed < 30f)
         {
-            float currentY = Mathf.Lerp(0f, cubeHeight * 0.5f, elapsed / 30f) + labelVerticalNudge;
-
             CreateSingleTimeLabel(
                 parent,
-                "TimeLabel_CurrentOnly",
+                "TimeLabel_NowOnly",
                 FormatClockTime(now),
-                new Vector3(xOffset, currentY, zOffset));
+                new Vector3(xOffset, 0f + labelVerticalNudge, zOffset));
 
             return;
         }
 
         if (elapsed < visibleSeconds)
         {
-            float progress = (elapsed - 30f) / (visibleSeconds - 30f);
-
-            float lowerY = Mathf.Lerp(0f, cubeHeight * 0.5f, progress) + labelVerticalNudge;
-            float upperY = Mathf.Lerp(cubeHeight * 0.5f, cubeHeight, progress) + labelVerticalNudge;
-
             DateTime minus30 = now.AddSeconds(-30);
-
-            CreateSingleTimeLabel(
-                parent,
-                "TimeLabel_Minus30",
-                FormatClockTime(minus30),
-                new Vector3(xOffset, lowerY, zOffset));
 
             CreateSingleTimeLabel(
                 parent,
                 "TimeLabel_Now",
                 FormatClockTime(now),
-                new Vector3(xOffset, upperY, zOffset));
+                new Vector3(xOffset, 0f + labelVerticalNudge, zOffset));
+
+            CreateSingleTimeLabel(
+                parent,
+                "TimeLabel_Minus30",
+                FormatClockTime(minus30),
+                new Vector3(xOffset, (cubeHeight * 0.5f) + labelVerticalNudge, zOffset));
 
             return;
         }
 
-        DateTime minus60Final = now.AddSeconds(-visibleSeconds);
-        DateTime minus30Final = now.AddSeconds(-(visibleSeconds * 0.5f));
         DateTime nowFinal = now;
+        DateTime minus30Final = now.AddSeconds(-(visibleSeconds * 0.5f));
+        DateTime minus60Final = now.AddSeconds(-visibleSeconds);
 
         CreateSingleTimeLabel(
             parent,
-            "TimeLabel_Bottom",
-            FormatClockTime(minus60Final),
+            "TimeLabel_Bottom_Now",
+            FormatClockTime(nowFinal),
             new Vector3(xOffset, 0f + labelVerticalNudge, zOffset));
 
         CreateSingleTimeLabel(
             parent,
-            "TimeLabel_Middle",
+            "TimeLabel_Middle_Minus30",
             FormatClockTime(minus30Final),
             new Vector3(xOffset, (cubeHeight * 0.5f) + labelVerticalNudge, zOffset));
 
         CreateSingleTimeLabel(
             parent,
-            "TimeLabel_Top",
-            FormatClockTime(nowFinal),
+            "TimeLabel_Top_Minus60",
+            FormatClockTime(minus60Final),
             new Vector3(xOffset, cubeHeight + labelVerticalNudge, zOffset));
     }
 
@@ -382,6 +409,7 @@ public class SpaceTimeCubeManager : MonoBehaviour
             textMesh.font = labelFont;
 
             MeshRenderer renderer = labelObj.GetComponent<MeshRenderer>();
+
             if (renderer != null && labelFont.material != null)
                 renderer.material = labelFont.material;
         }
@@ -410,6 +438,7 @@ public class SpaceTimeCubeManager : MonoBehaviour
             textMesh.font = labelFont;
 
             MeshRenderer renderer = labelObj.GetComponent<MeshRenderer>();
+
             if (renderer != null && labelFont.material != null)
                 renderer.material = labelFont.material;
         }
