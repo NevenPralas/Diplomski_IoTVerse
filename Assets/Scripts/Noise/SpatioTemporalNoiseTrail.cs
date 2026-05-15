@@ -30,17 +30,22 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
     [SerializeField] private bool rollingTimeWindow = true;
 
     [Header("Noise Mapping")]
-    [Tooltip("Donja granica buke za normalizaciju boje/širine.")]
+    [Tooltip("Donja granica buke za normalizaciju boje.")]
     [SerializeField] private float minNoiseDb = 30f;
 
-    [Tooltip("Gornja granica buke za normalizaciju boje/širine.")]
+    [Tooltip("Gornja granica buke za normalizaciju boje.")]
     [SerializeField] private float maxNoiseDb = 85f;
 
-    [Tooltip("Minimalna širina traga za tihe vrijednosti.")]
-    [SerializeField] private float minRibbonWidth = 0.04f;
+    [Header("Tube Geometry")]
+    [Tooltip("Radijus 3D cijevi. Ovo je konstantna debljina traga.")]
+    [SerializeField] private float tubeRadius = 0.055f;
 
-    [Tooltip("Maksimalna širina traga za glasne vrijednosti.")]
-    [SerializeField] private float maxRibbonWidth = 0.16f;
+    [Tooltip("Broj segmenata kruga. 8 je dobro za performanse, 12 izgleda glađe.")]
+    [Range(3, 24)]
+    [SerializeField] private int tubeSegments = 10;
+
+    [Tooltip("Ako je uključeno, zatvara početak i kraj cijevi.")]
+    [SerializeField] private bool capEnds = true;
 
     [Header("Sampling")]
     [Tooltip("Minimalni vremenski razmak između dva uzorka.")]
@@ -79,8 +84,8 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         historySeconds = Mathf.Max(1f, historySeconds);
         timeHeight = Mathf.Max(0.1f, timeHeight);
         minSampleInterval = Mathf.Max(0.05f, minSampleInterval);
-        minRibbonWidth = Mathf.Max(0.005f, minRibbonWidth);
-        maxRibbonWidth = Mathf.Max(minRibbonWidth, maxRibbonWidth);
+        tubeRadius = Mathf.Max(0.005f, tubeRadius);
+        tubeSegments = Mathf.Clamp(tubeSegments, 3, 24);
 
         if (useDefaultNoiseGradient)
         {
@@ -94,7 +99,7 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         meshRenderer = GetComponent<MeshRenderer>();
 
         mesh = new Mesh();
-        mesh.name = "SpatioTemporalNoiseTrailMesh";
+        mesh.name = "SpatioTemporalNoiseTrailTubeMesh";
         mesh.MarkDynamic();
 
         meshFilter.sharedMesh = mesh;
@@ -205,50 +210,110 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
             return;
         }
 
-        int vertexCount = samples.Count * 2;
-        int segmentCount = samples.Count - 1;
-        int triangleIndexCount = segmentCount * 6;
+        int ringCount = samples.Count;
+        int verticesPerRing = tubeSegments;
 
-        Vector3[] vertices = new Vector3[vertexCount];
-        Color[] colors = new Color[vertexCount];
-        int[] triangles = new int[triangleIndexCount];
+        int tubeVertexCount = ringCount * verticesPerRing;
+        int capVertexCount = capEnds ? 2 : 0;
+        int totalVertexCount = tubeVertexCount + capVertexCount;
 
-        for (int i = 0; i < samples.Count; i++)
+        int sideTriangleCount = (ringCount - 1) * tubeSegments * 2;
+        int capTriangleCount = capEnds ? tubeSegments * 2 : 0;
+        int totalTriangleIndexCount = (sideTriangleCount + capTriangleCount) * 3;
+
+        Vector3[] vertices = new Vector3[totalVertexCount];
+        Color[] colors = new Color[totalVertexCount];
+        int[] triangles = new int[totalTriangleIndexCount];
+
+        Vector3[] points = new Vector3[ringCount];
+
+        for (int i = 0; i < ringCount; i++)
         {
-            Vector3 pointWorld = GetSpatioTemporalPoint(samples[i]);
-            Vector3 sideWorld = GetSideDirection(i);
-            float width = GetRibbonWidth(samples[i].noiseDb);
+            points[i] = GetSpatioTemporalPoint(samples[i]);
+        }
 
-            Vector3 leftWorld = pointWorld - sideWorld * width * 0.5f;
-            Vector3 rightWorld = pointWorld + sideWorld * width * 0.5f;
-
-            int v = i * 2;
-
-            vertices[v] = transform.InverseTransformPoint(leftWorld);
-            vertices[v + 1] = transform.InverseTransformPoint(rightWorld);
+        for (int i = 0; i < ringCount; i++)
+        {
+            Vector3 tangent = GetTubeTangent(points, i);
+            BuildRingBasis(tangent, out Vector3 normal, out Vector3 binormal);
 
             Color sampleColor = GetNoiseColor(samples[i].noiseDb);
 
-            colors[v] = sampleColor;
-            colors[v + 1] = sampleColor;
+            for (int s = 0; s < tubeSegments; s++)
+            {
+                float angle = (Mathf.PI * 2f * s) / tubeSegments;
+
+                Vector3 offset =
+                    normal * Mathf.Cos(angle) * tubeRadius +
+                    binormal * Mathf.Sin(angle) * tubeRadius;
+
+                int vertexIndex = i * tubeSegments + s;
+
+                vertices[vertexIndex] = transform.InverseTransformPoint(points[i] + offset);
+                colors[vertexIndex] = sampleColor;
+            }
         }
 
-        int t = 0;
+        int triangleCursor = 0;
 
-        for (int i = 0; i < segmentCount; i++)
+        // Bočne plohe cijevi.
+        for (int i = 0; i < ringCount - 1; i++)
         {
-            int a = i * 2;
-            int b = a + 1;
-            int c = a + 2;
-            int d = a + 3;
+            int currentRing = i * tubeSegments;
+            int nextRing = (i + 1) * tubeSegments;
 
-            triangles[t++] = a;
-            triangles[t++] = c;
-            triangles[t++] = b;
+            for (int s = 0; s < tubeSegments; s++)
+            {
+                int sNext = (s + 1) % tubeSegments;
 
-            triangles[t++] = b;
-            triangles[t++] = c;
-            triangles[t++] = d;
+                int a = currentRing + s;
+                int b = currentRing + sNext;
+                int c = nextRing + s;
+                int d = nextRing + sNext;
+
+                triangles[triangleCursor++] = a;
+                triangles[triangleCursor++] = c;
+                triangles[triangleCursor++] = b;
+
+                triangles[triangleCursor++] = b;
+                triangles[triangleCursor++] = c;
+                triangles[triangleCursor++] = d;
+            }
+        }
+
+        // Zatvaranje početka i kraja cijevi.
+        if (capEnds)
+        {
+            int startCenterIndex = tubeVertexCount;
+            int endCenterIndex = tubeVertexCount + 1;
+
+            vertices[startCenterIndex] = transform.InverseTransformPoint(points[0]);
+            vertices[endCenterIndex] = transform.InverseTransformPoint(points[ringCount - 1]);
+
+            colors[startCenterIndex] = GetNoiseColor(samples[0].noiseDb);
+            colors[endCenterIndex] = GetNoiseColor(samples[ringCount - 1].noiseDb);
+
+            // Start cap
+            for (int s = 0; s < tubeSegments; s++)
+            {
+                int sNext = (s + 1) % tubeSegments;
+
+                triangles[triangleCursor++] = startCenterIndex;
+                triangles[triangleCursor++] = sNext;
+                triangles[triangleCursor++] = s;
+            }
+
+            // End cap
+            int endRingStart = (ringCount - 1) * tubeSegments;
+
+            for (int s = 0; s < tubeSegments; s++)
+            {
+                int sNext = (s + 1) % tubeSegments;
+
+                triangles[triangleCursor++] = endCenterIndex;
+                triangles[triangleCursor++] = endRingStart + s;
+                triangles[triangleCursor++] = endRingStart + sNext;
+            }
         }
 
         mesh.vertices = vertices;
@@ -272,56 +337,58 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         return p;
     }
 
-    private Vector3 GetSideDirection(int index)
+    private Vector3 GetTubeTangent(Vector3[] points, int index)
     {
-        Vector3 direction;
+        Vector3 tangent;
 
-        if (samples.Count < 2)
+        if (points.Length < 2)
         {
-            return Vector3.right;
+            tangent = Vector3.forward;
         }
-
-        if (index == 0)
+        else if (index == 0)
         {
-            direction = samples[1].worldPosition - samples[0].worldPosition;
+            tangent = points[1] - points[0];
         }
-        else if (index == samples.Count - 1)
+        else if (index == points.Length - 1)
         {
-            direction = samples[index].worldPosition - samples[index - 1].worldPosition;
+            tangent = points[index] - points[index - 1];
         }
         else
         {
-            direction = samples[index + 1].worldPosition - samples[index - 1].worldPosition;
+            tangent = points[index + 1] - points[index - 1];
         }
 
-        direction.y = 0f;
-
-        if (direction.sqrMagnitude < 0.0001f)
+        if (tangent.sqrMagnitude < 0.000001f)
         {
-            return Vector3.right;
+            tangent = Vector3.up;
         }
 
-        direction.Normalize();
+        return tangent.normalized;
+    }
 
-        Vector3 side = Vector3.Cross(Vector3.up, direction).normalized;
+    private void BuildRingBasis(Vector3 tangent, out Vector3 normal, out Vector3 binormal)
+    {
+        Vector3 reference = Vector3.up;
 
-        if (side.sqrMagnitude < 0.0001f)
+        // Ako je tangent skoro okomit, Vector3.up nije dobra referenca.
+        if (Mathf.Abs(Vector3.Dot(tangent, reference)) > 0.92f)
         {
-            side = Vector3.right;
+            reference = Vector3.right;
         }
 
-        return side;
+        normal = Vector3.Cross(tangent, reference).normalized;
+
+        if (normal.sqrMagnitude < 0.000001f)
+        {
+            normal = Vector3.forward;
+        }
+
+        binormal = Vector3.Cross(tangent, normal).normalized;
     }
 
     private float NormalizeNoise(float noiseDb)
     {
         return Mathf.Clamp01(Mathf.InverseLerp(minNoiseDb, maxNoiseDb, noiseDb));
-    }
-
-    private float GetRibbonWidth(float noiseDb)
-    {
-        float t = NormalizeNoise(noiseDb);
-        return Mathf.Lerp(minRibbonWidth, maxRibbonWidth, t);
     }
 
     private Color GetNoiseColor(float noiseDb)
@@ -336,7 +403,7 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         }
 
         Color c = gradientToUse.Evaluate(t);
-        c.a = Mathf.Lerp(0.60f, 1.00f, t);
+        c.a = Mathf.Lerp(0.65f, 1.00f, t);
 
         return c;
     }
@@ -347,17 +414,17 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
 
         GradientColorKey[] colorKeys =
         {
-            new GradientColorKey(new Color(0.00f, 0.65f, 1.00f), 0.00f), // cyan/plavo
-            new GradientColorKey(new Color(0.25f, 0.00f, 1.00f), 0.25f), // ljubičasto
-            new GradientColorKey(new Color(0.90f, 0.00f, 1.00f), 0.50f), // magenta
-            new GradientColorKey(new Color(1.00f, 0.65f, 0.00f), 0.75f), // narančasto
-            new GradientColorKey(new Color(1.00f, 0.00f, 0.05f), 1.00f)  // crveno
+            new GradientColorKey(new Color(0.00f, 0.65f, 1.00f), 0.00f),
+            new GradientColorKey(new Color(0.25f, 0.00f, 1.00f), 0.25f),
+            new GradientColorKey(new Color(0.90f, 0.00f, 1.00f), 0.50f),
+            new GradientColorKey(new Color(1.00f, 0.65f, 0.00f), 0.75f),
+            new GradientColorKey(new Color(1.00f, 0.00f, 0.05f), 1.00f)
         };
 
         GradientAlphaKey[] alphaKeys =
         {
-            new GradientAlphaKey(0.60f, 0.00f),
-            new GradientAlphaKey(0.80f, 0.50f),
+            new GradientAlphaKey(0.65f, 0.00f),
+            new GradientAlphaKey(0.85f, 0.50f),
             new GradientAlphaKey(1.00f, 1.00f)
         };
 
@@ -374,7 +441,7 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         Vector3 topCenter = transform.position + Vector3.up * (baseHeight + timeHeight);
 
         Gizmos.DrawLine(baseCenter, topCenter);
-        Gizmos.DrawWireSphere(baseCenter, 0.05f);
-        Gizmos.DrawWireSphere(topCenter, 0.05f);
+        Gizmos.DrawWireSphere(baseCenter, tubeRadius);
+        Gizmos.DrawWireSphere(topCenter, tubeRadius);
     }
 }
