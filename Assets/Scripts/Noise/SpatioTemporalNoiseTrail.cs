@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 [RequireComponent(typeof(MeshFilter))]
@@ -40,7 +41,7 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
     [Tooltip("Radijus 3D cijevi. Ovo je konstantna debljina traga.")]
     [SerializeField] private float tubeRadius = 0.055f;
 
-    [Tooltip("Broj segmenata kruga. 8 je dobro za performanse, 12 izgleda glađe.")]
+    [Tooltip("Broj segmenata kruga. 8 je dobro za performanse, 12 ili 16 izgleda glađe.")]
     [Range(3, 24)]
     [SerializeField] private int tubeSegments = 10;
 
@@ -63,6 +64,44 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
     [SerializeField] private bool rebuildEveryFrame = true;
     [SerializeField] private bool visible = true;
 
+    [Header("Time Labels")]
+    [Tooltip("Prikazuje 3 vremenske labele: sada, -30 s i -60 s.")]
+    [SerializeField] private bool showTimeLabels = true;
+
+    [Tooltip("Prikazuje datum iznad prostorno-vremenske putanje.")]
+    [SerializeField] private bool showDateLabel = true;
+
+    [Tooltip("Prikazuje tanku vremensku os uz labele.")]
+    [SerializeField] private bool showTimeAxis = true;
+
+    [Tooltip("Horizontalni odmak labela od putanje. Ako su labele u zidu, promijeni predznak.")]
+    [SerializeField] private float labelHorizontalOffset = 0.35f;
+
+    [Tooltip("Odmak po Z osi. Koristi ako želiš labele pomaknuti naprijed/nazad u sobi.")]
+    [SerializeField] private float labelDepthOffset = 0.0f;
+
+    [Tooltip("Mali vertikalni pomak svih vremenskih labela.")]
+    [SerializeField] private float labelVerticalNudge = 0.0f;
+
+    [Tooltip("Odmak vremenske osi od samih labela.")]
+    [SerializeField] private float axisOffsetFromLabels = 0.08f;
+
+    [SerializeField] private int labelFontSize = 48;
+    [SerializeField] private float labelCharacterSize = 0.022f;
+    [SerializeField] private Color labelColor = Color.white;
+    [SerializeField] private Font labelFont;
+
+    [Header("Date Label")]
+    [SerializeField] private float dateLabelHeightOffset = 0.18f;
+    [SerializeField] private int dateLabelFontSize = 52;
+    [SerializeField] private float dateLabelCharacterSize = 0.024f;
+    [SerializeField] private Color dateLabelColor = Color.white;
+
+    [Header("Time Axis Visual")]
+    [SerializeField] private Color timeAxisColor = Color.white;
+    [SerializeField] private float timeAxisWidth = 0.01f;
+    [SerializeField] private float timeTickRadius = 0.035f;
+
     [Header("Debug")]
     [SerializeField] private bool logSamples = false;
 
@@ -73,6 +112,27 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
     private MeshRenderer meshRenderer;
 
     private float lastSampleTime = -999f;
+
+    private GameObject labelRoot;
+
+    private GameObject nowLabelObject;
+    private GameObject minus30LabelObject;
+    private GameObject minus60LabelObject;
+    private GameObject dateLabelObject;
+
+    private TextMesh nowLabelText;
+    private TextMesh minus30LabelText;
+    private TextMesh minus60LabelText;
+    private TextMesh dateLabelText;
+
+    private GameObject timeAxisObject;
+    private LineRenderer timeAxisLine;
+
+    private GameObject bottomTickObject;
+    private GameObject middleTickObject;
+    private GameObject topTickObject;
+
+    private Material timeAxisMaterial;
 
     private void Reset()
     {
@@ -86,6 +146,8 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         minSampleInterval = Mathf.Max(0.05f, minSampleInterval);
         tubeRadius = Mathf.Max(0.005f, tubeRadius);
         tubeSegments = Mathf.Clamp(tubeSegments, 3, 24);
+        timeAxisWidth = Mathf.Max(0.001f, timeAxisWidth);
+        timeTickRadius = Mathf.Max(0.005f, timeTickRadius);
 
         if (useDefaultNoiseGradient)
         {
@@ -115,6 +177,9 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         }
 
         meshRenderer.enabled = visible;
+
+        CreateLabelRootIfNeeded();
+        CreateTimeAxisMaterialIfNeeded();
     }
 
     private void Update()
@@ -125,6 +190,8 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         {
             RebuildMesh();
         }
+
+        UpdateLabelsAndAxis();
     }
 
     public void AddSample(Vector3 worldPosition, float noiseDb)
@@ -154,6 +221,7 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
 
         RemoveOldSamples();
         RebuildMesh();
+        UpdateLabelsAndAxis();
     }
 
     public void ClearTrail()
@@ -164,6 +232,8 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         {
             mesh.Clear();
         }
+
+        SetLabelObjectsVisible(false);
     }
 
     public void SetVisible(bool isVisible)
@@ -174,6 +244,8 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         {
             meshRenderer.enabled = visible;
         }
+
+        SetLabelObjectsVisible(visible);
     }
 
     public bool IsVisible()
@@ -256,7 +328,6 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
 
         int triangleCursor = 0;
 
-        // Bočne plohe cijevi.
         for (int i = 0; i < ringCount - 1; i++)
         {
             int currentRing = i * tubeSegments;
@@ -281,7 +352,6 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
             }
         }
 
-        // Zatvaranje početka i kraja cijevi.
         if (capEnds)
         {
             int startCenterIndex = tubeVertexCount;
@@ -293,7 +363,6 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
             colors[startCenterIndex] = GetNoiseColor(samples[0].noiseDb);
             colors[endCenterIndex] = GetNoiseColor(samples[ringCount - 1].noiseDb);
 
-            // Start cap
             for (int s = 0; s < tubeSegments; s++)
             {
                 int sNext = (s + 1) % tubeSegments;
@@ -303,7 +372,6 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
                 triangles[triangleCursor++] = s;
             }
 
-            // End cap
             int endRingStart = (ringCount - 1) * tubeSegments;
 
             for (int s = 0; s < tubeSegments; s++)
@@ -370,7 +438,6 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
     {
         Vector3 reference = Vector3.up;
 
-        // Ako je tangent skoro okomit, Vector3.up nije dobra referenca.
         if (Mathf.Abs(Vector3.Dot(tangent, reference)) > 0.92f)
         {
             reference = Vector3.right;
@@ -431,6 +498,354 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         g.SetKeys(colorKeys, alphaKeys);
 
         return g;
+    }
+
+    // ============================================================
+    // LABELS
+    // ============================================================
+
+    private void CreateLabelRootIfNeeded()
+    {
+        if (labelRoot != null)
+        {
+            return;
+        }
+
+        labelRoot = new GameObject("NoiseTrailLabels");
+        labelRoot.transform.SetParent(transform, true);
+    }
+
+    private void CreateTimeAxisMaterialIfNeeded()
+    {
+        if (timeAxisMaterial != null)
+        {
+            return;
+        }
+
+        Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
+
+        if (shader == null)
+        {
+            shader = Shader.Find("Unlit/Color");
+        }
+
+        if (shader == null)
+        {
+            shader = Shader.Find("Sprites/Default");
+        }
+
+        timeAxisMaterial = new Material(shader);
+        timeAxisMaterial.color = timeAxisColor;
+    }
+
+    private void UpdateLabelsAndAxis()
+    {
+        CreateLabelRootIfNeeded();
+
+        bool shouldShowAnything = visible && samples.Count > 0 && (showTimeLabels || showDateLabel || showTimeAxis);
+
+        SetLabelObjectsVisible(shouldShowAnything);
+
+        if (!shouldShowAnything)
+        {
+            return;
+        }
+
+        Vector3 bottomPos;
+        Vector3 middlePos;
+        Vector3 topPos;
+        Vector3 datePos;
+        Vector3 axisBottomPos;
+        Vector3 axisMiddlePos;
+        Vector3 axisTopPos;
+
+        CalculateLabelPositions(
+            out bottomPos,
+            out middlePos,
+            out topPos,
+            out datePos,
+            out axisBottomPos,
+            out axisMiddlePos,
+            out axisTopPos
+        );
+
+        DateTime now = DateTime.Now;
+        DateTime minus30 = now.AddSeconds(-30);
+        DateTime minus60 = now.AddSeconds(-historySeconds);
+
+        if (showTimeLabels)
+        {
+            CreateOrUpdateTextLabel(
+                ref nowLabelObject,
+                ref nowLabelText,
+                "NoiseTimeLabel_Now",
+                FormatClockTime(now),
+                bottomPos,
+                labelFontSize,
+                labelCharacterSize,
+                labelColor,
+                TextAnchor.MiddleLeft
+            );
+
+            CreateOrUpdateTextLabel(
+                ref minus30LabelObject,
+                ref minus30LabelText,
+                "NoiseTimeLabel_Minus30",
+                FormatClockTime(minus30),
+                middlePos,
+                labelFontSize,
+                labelCharacterSize,
+                labelColor,
+                TextAnchor.MiddleLeft
+            );
+
+            CreateOrUpdateTextLabel(
+                ref minus60LabelObject,
+                ref minus60LabelText,
+                "NoiseTimeLabel_Minus60",
+                FormatClockTime(minus60),
+                topPos,
+                labelFontSize,
+                labelCharacterSize,
+                labelColor,
+                TextAnchor.MiddleLeft
+            );
+        }
+
+        if (showDateLabel)
+        {
+            CreateOrUpdateTextLabel(
+                ref dateLabelObject,
+                ref dateLabelText,
+                "NoiseDateLabel",
+                FormatDate(now),
+                datePos,
+                dateLabelFontSize,
+                dateLabelCharacterSize,
+                dateLabelColor,
+                TextAnchor.MiddleCenter
+            );
+        }
+
+        if (showTimeAxis)
+        {
+            UpdateTimeAxis(axisBottomPos, axisMiddlePos, axisTopPos);
+        }
+    }
+
+    private void CalculateLabelPositions(
+        out Vector3 bottomPos,
+        out Vector3 middlePos,
+        out Vector3 topPos,
+        out Vector3 datePos,
+        out Vector3 axisBottomPos,
+        out Vector3 axisMiddlePos,
+        out Vector3 axisTopPos)
+    {
+        float maxX = transform.position.x;
+        float minX = transform.position.x;
+        float zSum = 0f;
+        int count = 0;
+
+        if (samples.Count > 0)
+        {
+            for (int i = 0; i < samples.Count; i++)
+            {
+                Vector3 p = GetSpatioTemporalPoint(samples[i]);
+
+                if (i == 0)
+                {
+                    minX = p.x;
+                    maxX = p.x;
+                }
+                else
+                {
+                    minX = Mathf.Min(minX, p.x);
+                    maxX = Mathf.Max(maxX, p.x);
+                }
+
+                zSum += p.z;
+                count++;
+            }
+        }
+
+        float averageZ = count > 0 ? zSum / count : transform.position.z;
+
+        float labelX = maxX + labelHorizontalOffset;
+        float labelZ = averageZ + labelDepthOffset;
+
+        float bottomY = baseHeight + verticalNudge + labelVerticalNudge;
+        float middleY = baseHeight + verticalNudge + (timeHeight * 0.5f) + labelVerticalNudge;
+        float topY = baseHeight + verticalNudge + timeHeight + labelVerticalNudge;
+
+        bottomPos = new Vector3(labelX, bottomY, labelZ);
+        middlePos = new Vector3(labelX, middleY, labelZ);
+        topPos = new Vector3(labelX, topY, labelZ);
+
+        datePos = new Vector3(labelX, topY + dateLabelHeightOffset, labelZ);
+
+        float axisX = labelX - axisOffsetFromLabels;
+
+        axisBottomPos = new Vector3(axisX, bottomY, labelZ);
+        axisMiddlePos = new Vector3(axisX, middleY, labelZ);
+        axisTopPos = new Vector3(axisX, topY, labelZ);
+    }
+
+    private void CreateOrUpdateTextLabel(
+        ref GameObject labelObject,
+        ref TextMesh textMesh,
+        string objectName,
+        string textValue,
+        Vector3 worldPosition,
+        int fontSize,
+        float characterSize,
+        Color color,
+        TextAnchor anchor)
+    {
+        if (labelObject == null)
+        {
+            labelObject = new GameObject(objectName);
+            labelObject.transform.SetParent(labelRoot.transform, true);
+
+            textMesh = labelObject.AddComponent<TextMesh>();
+            textMesh.anchor = anchor;
+            textMesh.alignment = TextAlignment.Left;
+
+            WorldLabelBillboard billboard = labelObject.GetComponent<WorldLabelBillboard>();
+
+            if (billboard == null)
+            {
+                labelObject.AddComponent<WorldLabelBillboard>();
+            }
+        }
+
+        labelObject.SetActive(visible);
+
+        labelObject.transform.position = worldPosition;
+        labelObject.transform.localScale = Vector3.one;
+
+        textMesh.text = textValue;
+        textMesh.fontSize = fontSize;
+        textMesh.characterSize = characterSize;
+        textMesh.color = color;
+        textMesh.anchor = anchor;
+
+        if (labelFont != null)
+        {
+            textMesh.font = labelFont;
+
+            MeshRenderer renderer = labelObject.GetComponent<MeshRenderer>();
+
+            if (renderer != null && labelFont.material != null)
+            {
+                renderer.material = labelFont.material;
+            }
+        }
+    }
+
+    private void UpdateTimeAxis(Vector3 bottomPos, Vector3 middlePos, Vector3 topPos)
+    {
+        CreateTimeAxisMaterialIfNeeded();
+
+        if (timeAxisObject == null)
+        {
+            timeAxisObject = new GameObject("NoiseTimeAxis");
+            timeAxisObject.transform.SetParent(labelRoot.transform, true);
+
+            timeAxisLine = timeAxisObject.AddComponent<LineRenderer>();
+            timeAxisLine.useWorldSpace = true;
+            timeAxisLine.positionCount = 2;
+            timeAxisLine.material = timeAxisMaterial;
+            timeAxisLine.startWidth = timeAxisWidth;
+            timeAxisLine.endWidth = timeAxisWidth;
+            timeAxisLine.numCapVertices = 4;
+            timeAxisLine.numCornerVertices = 4;
+        }
+
+        timeAxisObject.SetActive(visible && showTimeAxis);
+
+        timeAxisLine.material = timeAxisMaterial;
+        timeAxisLine.startColor = timeAxisColor;
+        timeAxisLine.endColor = timeAxisColor;
+        timeAxisLine.startWidth = timeAxisWidth;
+        timeAxisLine.endWidth = timeAxisWidth;
+
+        timeAxisLine.SetPosition(0, bottomPos);
+        timeAxisLine.SetPosition(1, topPos);
+
+        CreateOrUpdateTick(ref bottomTickObject, "NoiseTimeAxisTick_Now", bottomPos);
+        CreateOrUpdateTick(ref middleTickObject, "NoiseTimeAxisTick_Minus30", middlePos);
+        CreateOrUpdateTick(ref topTickObject, "NoiseTimeAxisTick_Minus60", topPos);
+    }
+
+    private void CreateOrUpdateTick(ref GameObject tickObject, string objectName, Vector3 worldPosition)
+    {
+        if (tickObject == null)
+        {
+            tickObject = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            tickObject.name = objectName;
+            tickObject.transform.SetParent(labelRoot.transform, true);
+
+            Collider col = tickObject.GetComponent<Collider>();
+
+            if (col != null)
+            {
+                Destroy(col);
+            }
+
+            Renderer renderer = tickObject.GetComponent<Renderer>();
+
+            if (renderer != null)
+            {
+                renderer.material = timeAxisMaterial;
+            }
+        }
+
+        tickObject.SetActive(visible && showTimeAxis);
+        tickObject.transform.position = worldPosition;
+        tickObject.transform.localScale = Vector3.one * timeTickRadius;
+    }
+
+    private void SetLabelObjectsVisible(bool isVisible)
+    {
+        if (labelRoot != null)
+        {
+            labelRoot.SetActive(isVisible);
+        }
+
+        if (nowLabelObject != null)
+            nowLabelObject.SetActive(isVisible && showTimeLabels);
+
+        if (minus30LabelObject != null)
+            minus30LabelObject.SetActive(isVisible && showTimeLabels);
+
+        if (minus60LabelObject != null)
+            minus60LabelObject.SetActive(isVisible && showTimeLabels);
+
+        if (dateLabelObject != null)
+            dateLabelObject.SetActive(isVisible && showDateLabel);
+
+        if (timeAxisObject != null)
+            timeAxisObject.SetActive(isVisible && showTimeAxis);
+
+        if (bottomTickObject != null)
+            bottomTickObject.SetActive(isVisible && showTimeAxis);
+
+        if (middleTickObject != null)
+            middleTickObject.SetActive(isVisible && showTimeAxis);
+
+        if (topTickObject != null)
+            topTickObject.SetActive(isVisible && showTimeAxis);
+    }
+
+    private string FormatClockTime(DateTime timeValue)
+    {
+        return timeValue.ToString("HH:mm:ss");
+    }
+
+    private string FormatDate(DateTime timeValue)
+    {
+        return timeValue.ToString("dd/MM/yyyy");
     }
 
     private void OnDrawGizmosSelected()

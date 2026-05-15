@@ -16791,19 +16791,20 @@ MonoBehaviour:
   trailMaterial: {fileID: 2100000, guid: 489b60270391d6c41a26c76a822f62e7, type: 2}
   historySeconds: 60
   timeHeight: 2.2
-  baseHeight: 0.05
+  baseHeight: 0.3
   rollingTimeWindow: 1
   minNoiseDb: 30
   maxNoiseDb: 85
-  minRibbonWidth: 0.06
-  maxRibbonWidth: 0.22
+  tubeRadius: 0.055
+  tubeSegments: 10
+  capEnds: 1
   minSampleInterval: 0.25
   verticalNudge: 0.02
   useDefaultNoiseGradient: 1
   noiseGradient:
     serializedVersion: 2
-    key0: {r: 0, g: 0.65, b: 1, a: 0.6}
-    key1: {r: 0.25, g: 0, b: 1, a: 0.8}
+    key0: {r: 0, g: 0.65, b: 1, a: 0.65}
+    key1: {r: 0.25, g: 0, b: 1, a: 0.85}
     key2: {r: 0.9, g: 0, b: 1, a: 1}
     key3: {r: 1, g: 0.65, b: 0, a: 0}
     key4: {r: 1, g: 0, b: 0.05, a: 0}
@@ -16832,6 +16833,24 @@ MonoBehaviour:
     m_NumAlphaKeys: 3
   rebuildEveryFrame: 1
   visible: 1
+  showTimeLabels: 1
+  showDateLabel: 1
+  showTimeAxis: 1
+  labelHorizontalOffset: 0.35
+  labelDepthOffset: 0
+  labelVerticalNudge: 0
+  axisOffsetFromLabels: 0.08
+  labelFontSize: 48
+  labelCharacterSize: 0.022
+  labelColor: {r: 1, g: 1, b: 1, a: 1}
+  labelFont: {fileID: 0}
+  dateLabelHeightOffset: 0.18
+  dateLabelFontSize: 52
+  dateLabelCharacterSize: 0.024
+  dateLabelColor: {r: 1, g: 1, b: 1, a: 1}
+  timeAxisColor: {r: 1, g: 1, b: 1, a: 1}
+  timeAxisWidth: 0.01
+  timeTickRadius: 0.035
   logSamples: 0
 --- !u!23 &2127501897
 MeshRenderer:
