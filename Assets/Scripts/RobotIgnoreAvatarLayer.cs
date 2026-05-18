@@ -2,7 +2,7 @@ using UnityEngine;
 
 public class RobotIgnoreAvatarLayer : MonoBehaviour
 {
-    public string avatarLayerName = "Player";
+    public string avatarLayerName = "Avatar";
 
     [ContextMenu("Robot Ignore Avatar Layer")]
     public void IgnoreAvatarLayer()
