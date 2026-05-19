@@ -49,8 +49,29 @@ public class SpaceTimeCubeManager : MonoBehaviour
     [SerializeField] private AudioClip spawnSound;
     [SerializeField] private AudioSource audioSource;
 
-    private GameObject activeColumnRoot = null;
-    private Vector2Int activeCell = new Vector2Int(-1, -1);
+    [Header("Multiple Columns")]
+    [Tooltip("0 znaci neograniceno. Ako stavis npr. 5, moze biti otvoreno najvise 5 stupaca.")]
+    [SerializeField] private int maxOpenColumns = 0;
+
+    [Tooltip("Ako kliknes celiju koja vec ima otvoren stupac, stupac se zatvara.")]
+    [SerializeField] private bool toggleColumnOnSameCell = true;
+
+    [Header("Physics Isolation")]
+    [Tooltip("Runtime stupci i njihove labele idu na ovaj layer. Ostavi prazno ako ne zelis mijenjati layer.")]
+    [SerializeField] private string visualizationLayerName = "Visualization";
+
+    private class ColumnInstance
+    {
+        public GameObject root;
+        public Vector2Int cell;
+    }
+
+    private readonly Dictionary<Vector2Int, ColumnInstance> openColumns =
+        new Dictionary<Vector2Int, ColumnInstance>();
+
+    private readonly List<Vector2Int> columnOpenOrder =
+        new List<Vector2Int>();
+
     private float refreshTimer = 0f;
 
     private void OnEnable()
@@ -72,14 +93,14 @@ public class SpaceTimeCubeManager : MonoBehaviour
             TryPlaceAtCursor();
         }
 
-        if (activeColumnRoot != null)
+        if (openColumns.Count > 0)
         {
             refreshTimer += Time.deltaTime;
 
             if (refreshTimer >= refreshInterval)
             {
                 refreshTimer = 0f;
-                RebuildActiveColumn();
+                RebuildAllOpenColumns();
             }
         }
     }
@@ -99,51 +120,93 @@ public class SpaceTimeCubeManager : MonoBehaviour
         }
 
         Vector2Int cell = gridCellCursor.CurrentCell;
-        PlaceColumn(cell.x, cell.y);
+        ToggleOrCreateColumn(cell.x, cell.y);
     }
 
-    private void PlaceColumn(int gridX, int gridY)
+    private void ToggleOrCreateColumn(int gridX, int gridY)
     {
-        Vector2Int newCell = new Vector2Int(gridX, gridY);
+        Vector2Int cell = new Vector2Int(gridX, gridY);
 
-        if (activeCell == newCell && activeColumnRoot != null)
+        if (openColumns.TryGetValue(cell, out ColumnInstance existingColumn))
         {
-            Destroy(activeColumnRoot);
-            activeColumnRoot = null;
-            activeCell = new Vector2Int(-1, -1);
-            Debug.Log("Stupac uklonjen.");
+            if (toggleColumnOnSameCell)
+            {
+                CloseColumn(cell);
+                Debug.Log($"Space-Time stupac uklonjen s ćelije ({gridX}, {gridY})");
+            }
+
             return;
         }
 
-        if (activeColumnRoot != null)
-        {
-            Destroy(activeColumnRoot);
-            activeColumnRoot = null;
-        }
+        EnforceMaxOpenColumns();
 
-        activeCell = newCell;
-        BuildColumn(gridX, gridY, true);
-        refreshTimer = 0f;
+        GameObject columnRoot = BuildColumn(gridX, gridY, true);
+
+        ColumnInstance instance = new ColumnInstance
+        {
+            root = columnRoot,
+            cell = cell
+        };
+
+        openColumns[cell] = instance;
+        columnOpenOrder.Add(cell);
 
         Vector3 cellCenter = heatmap.GetCellCenterWorld(gridX, gridY);
         Vector3 soundPosition = new Vector3(cellCenter.x, cellCenter.y + cubeHeight * 0.5f, cellCenter.z);
         PlaySpawnSound(soundPosition);
 
-        Debug.Log($"Space-Time stupac stvoren na ćeliji ({gridX}, {gridY})");
+        Debug.Log($"Space-Time stupac stvoren na ćeliji ({gridX}, {gridY}). Ukupno otvorenih: {openColumns.Count}");
     }
 
-    private void RebuildActiveColumn()
+    private void EnforceMaxOpenColumns()
     {
-        if (activeCell.x < 0 || activeCell.y < 0)
+        if (maxOpenColumns <= 0)
             return;
 
-        if (activeColumnRoot != null)
-            Destroy(activeColumnRoot);
-
-        BuildColumn(activeCell.x, activeCell.y, false);
+        while (openColumns.Count >= maxOpenColumns && columnOpenOrder.Count > 0)
+        {
+            Vector2Int oldestCell = columnOpenOrder[0];
+            CloseColumn(oldestCell);
+        }
     }
 
-    private void BuildColumn(int gridX, int gridY, bool playRiseAnimation)
+    private void CloseColumn(Vector2Int cell)
+    {
+        if (openColumns.TryGetValue(cell, out ColumnInstance instance))
+        {
+            if (instance.root != null)
+                Destroy(instance.root);
+
+            openColumns.Remove(cell);
+        }
+
+        columnOpenOrder.Remove(cell);
+    }
+
+    private void RebuildAllOpenColumns()
+    {
+        if (openColumns.Count == 0)
+            return;
+
+        List<Vector2Int> cellsToRebuild = new List<Vector2Int>(openColumns.Keys);
+
+        for (int i = 0; i < cellsToRebuild.Count; i++)
+        {
+            Vector2Int cell = cellsToRebuild[i];
+
+            if (!openColumns.TryGetValue(cell, out ColumnInstance instance))
+                continue;
+
+            if (instance.root != null)
+                Destroy(instance.root);
+
+            GameObject rebuiltRoot = BuildColumn(cell.x, cell.y, false);
+            instance.root = rebuiltRoot;
+            openColumns[cell] = instance;
+        }
+    }
+
+    private GameObject BuildColumn(int gridX, int gridY, bool playRiseAnimation)
     {
         if (visibleSeconds <= 0)
             visibleSeconds = 1;
@@ -152,23 +215,28 @@ public class SpaceTimeCubeManager : MonoBehaviour
         float cellD = heatmap.GetCellHeight();
         Vector3 cellCenter = heatmap.GetCellCenterWorld(gridX, gridY);
 
-        activeColumnRoot = new GameObject($"SpaceTimeColumnRoot_{gridX}_{gridY}");
-        activeColumnRoot.transform.position = cellCenter;
+        GameObject columnRoot = new GameObject($"SpaceTimeColumnRoot_{gridX}_{gridY}");
+        columnRoot.transform.position = cellCenter;
+        SetVisualizationLayer(columnRoot);
 
-        CreateMainWhiteColumn(activeColumnRoot.transform, cellW, cubeHeight, cellD, playRiseAnimation);
-        CreateFilledTimeSlices(activeColumnRoot.transform, gridX, gridY, cellW, cubeHeight, cellD);
+        CreateMainWhiteColumn(columnRoot.transform, cellW, cubeHeight, cellD, playRiseAnimation);
+        CreateFilledTimeSlices(columnRoot.transform, gridX, gridY, cellW, cubeHeight, cellD);
 
         if (showTimeLabels)
-            CreateAdaptiveTimeLabels(activeColumnRoot.transform, cellW);
+            CreateAdaptiveTimeLabels(columnRoot.transform, cellW);
 
         if (showDateLabel)
-            CreateDateLabel(activeColumnRoot.transform);
+            CreateDateLabel(columnRoot.transform);
+
+        return columnRoot;
     }
 
     private void CreateMainWhiteColumn(Transform parent, float cellW, float height, float cellD, bool playRiseAnimation)
     {
         GameObject mainColumn = GameObject.CreatePrimitive(PrimitiveType.Cube);
         mainColumn.name = "MainWhiteColumn";
+        SetVisualizationLayer(mainColumn);
+
         mainColumn.transform.SetParent(parent, false);
         mainColumn.transform.localPosition = new Vector3(0f, height * 0.5f, 0f);
         mainColumn.transform.localScale = new Vector3(cellW, height, cellD);
@@ -222,23 +290,6 @@ public class SpaceTimeCubeManager : MonoBehaviour
 
         for (int secondIndex = 0; secondIndex < visibleSeconds; secondIndex++)
         {
-            /*
-             * Obrnuta vremenska os:
-             *
-             * secondIndex = 0  -> najnoviji interval, sada / zadnja sekunda
-             * secondIndex = 1  -> prije 1-2 sekunde
-             * secondIndex = 30 -> prije oko 30 sekundi
-             * secondIndex = 59 -> prije oko 59-60 sekundi
-             *
-             * Y pozicija ostaje direktno vezana uz secondIndex:
-             * secondIndex = 0  -> dno stupca
-             * secondIndex = 59 -> vrh stupca
-             *
-             * Rezultat:
-             * dno = sada
-             * vrh = prošlost
-             */
-
             float bucketEnd = currentTime - secondIndex;
             float bucketStart = bucketEnd - 1f;
 
@@ -286,6 +337,8 @@ public class SpaceTimeCubeManager : MonoBehaviour
     {
         GameObject piece = GameObject.CreatePrimitive(PrimitiveType.Cube);
         piece.name = pieceName;
+        SetVisualizationLayer(piece);
+
         piece.transform.SetParent(parent, false);
         piece.transform.localPosition = localPosition;
         piece.transform.localScale = localScale;
@@ -312,17 +365,6 @@ public class SpaceTimeCubeManager : MonoBehaviour
 
         float xOffset = (cellW * 0.5f) + labelHorizontalOffset;
         float zOffset = 0f;
-
-        /*
-         * Obrnuta vremenska os:
-         *
-         * dno stupca    = sada
-         * sredina       = prije oko 30 sekundi
-         * vrh stupca    = prije oko 60 sekundi
-         *
-         * Ovo je isto kao kod SpatioTemporalNoiseTrail:
-         * trenutni uzorak je dolje, a stariji uzorci idu prema gore.
-         */
 
         if (elapsed < 30f)
         {
@@ -391,6 +433,8 @@ public class SpaceTimeCubeManager : MonoBehaviour
     private void CreateSingleTimeLabel(Transform parent, string objectName, string textValue, Vector3 localPosition)
     {
         GameObject labelObj = new GameObject(objectName);
+        SetVisualizationLayer(labelObj);
+
         labelObj.transform.SetParent(parent, false);
         labelObj.transform.localPosition = localPosition;
         labelObj.transform.localRotation = Quaternion.identity;
@@ -420,6 +464,8 @@ public class SpaceTimeCubeManager : MonoBehaviour
     private void CreateSingleDateLabel(Transform parent, string objectName, string textValue, Vector3 localPosition)
     {
         GameObject labelObj = new GameObject(objectName);
+        SetVisualizationLayer(labelObj);
+
         labelObj.transform.SetParent(parent, false);
         labelObj.transform.localPosition = localPosition;
         labelObj.transform.localRotation = Quaternion.identity;
@@ -444,6 +490,22 @@ public class SpaceTimeCubeManager : MonoBehaviour
         }
 
         labelObj.AddComponent<WorldLabelBillboard>();
+    }
+
+    private void SetVisualizationLayer(GameObject obj)
+    {
+        if (obj == null)
+            return;
+
+        if (string.IsNullOrWhiteSpace(visualizationLayerName))
+            return;
+
+        int layer = LayerMask.NameToLayer(visualizationLayerName);
+
+        if (layer == -1)
+            return;
+
+        obj.layer = layer;
     }
 
     private string FormatClockTime(DateTime timeValue)

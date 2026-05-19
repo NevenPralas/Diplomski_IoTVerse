@@ -22,6 +22,12 @@ public class HeatmapCellParticles : MonoBehaviour
     [SerializeField] private float alphaMin = 0.3f;
     [SerializeField] private float alphaMax = 0.6f;
 
+    [Header("Physics Isolation")]
+    [SerializeField] private string visualizationLayerName = "Visualization";
+    [SerializeField] private bool removeCollidersFromParticles = true;
+    [SerializeField] private bool removeRigidbodiesFromParticles = true;
+    [SerializeField] private bool disableParticleCollisionModule = true;
+
     private readonly Dictionary<Vector2Int, ParticleSystem> activeParticles = new();
     private readonly HashSet<Vector2Int> blockedCells = new();
 
@@ -33,6 +39,8 @@ public class HeatmapCellParticles : MonoBehaviour
             root.transform.SetParent(transform, false);
             particlesParent = root.transform;
         }
+
+        ApplyVisualizationLayerRecursively(particlesParent.gameObject);
     }
 
     public void ShowOrUpdateCellParticle(int gridX, int gridY, float temperature)
@@ -57,6 +65,9 @@ public class HeatmapCellParticles : MonoBehaviour
             cellCenter.y += verticalOffset;
 
             GameObject go = Instantiate(particlePrefab, cellCenter, Quaternion.identity, particlesParent);
+
+            PrepareVisualizationObject(go);
+
             ps = go.GetComponent<ParticleSystem>();
 
             if (ps == null)
@@ -70,6 +81,55 @@ public class HeatmapCellParticles : MonoBehaviour
         }
 
         UpdateParticleColor(ps, temperature);
+    }
+
+    private void PrepareVisualizationObject(GameObject root)
+    {
+        ApplyVisualizationLayerRecursively(root);
+
+        if (removeCollidersFromParticles)
+        {
+            foreach (Collider col in root.GetComponentsInChildren<Collider>(true))
+            {
+                Destroy(col);
+            }
+        }
+
+        if (removeRigidbodiesFromParticles)
+        {
+            foreach (Rigidbody rb in root.GetComponentsInChildren<Rigidbody>(true))
+            {
+                Destroy(rb);
+            }
+        }
+
+        if (disableParticleCollisionModule)
+        {
+            foreach (ParticleSystem ps in root.GetComponentsInChildren<ParticleSystem>(true))
+            {
+                ParticleSystem.CollisionModule collision = ps.collision;
+                collision.enabled = false;
+
+                ParticleSystem.TriggerModule trigger = ps.trigger;
+                trigger.enabled = false;
+            }
+        }
+    }
+
+    private void ApplyVisualizationLayerRecursively(GameObject root)
+    {
+        int layer = LayerMask.NameToLayer(visualizationLayerName);
+
+        if (layer == -1)
+        {
+            Debug.LogWarning("Layer ne postoji: " + visualizationLayerName);
+            return;
+        }
+
+        foreach (Transform t in root.GetComponentsInChildren<Transform>(true))
+        {
+            t.gameObject.layer = layer;
+        }
     }
 
     private void UpdateParticleColor(ParticleSystem ps, float temperature)

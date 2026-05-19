@@ -14,78 +14,59 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         public float time;
     }
 
+    public struct NoiseHoverInfo
+    {
+        public Vector3 worldPoint;
+        public float noiseDb;
+        public float ageSeconds;
+        public DateTime clockTime;
+    }
+
     [Header("References")]
     [SerializeField] private Material trailMaterial;
 
     [Header("Time Mapping")]
-    [Tooltip("Koliko sekundi povijesti se prikazuje u 3D putanji.")]
     [SerializeField] private float historySeconds = 60f;
-
-    [Tooltip("Visina 3D putanje koja predstavlja historySeconds.")]
-    [SerializeField] private float timeHeight = 1.6f;
-
-    [Tooltip("Y pozicija najnovijeg uzorka.")]
-    [SerializeField] private float baseHeight = 0.05f;
-
-    [Tooltip("Ako je uključeno, stariji uzorci se guraju prema gore kako vrijeme prolazi.")]
+    [SerializeField] private float timeHeight = 2.2f;
+    [SerializeField] private float baseHeight = 0.3f;
     [SerializeField] private bool rollingTimeWindow = true;
 
     [Header("Noise Mapping")]
-    [Tooltip("Donja granica buke za normalizaciju boje.")]
     [SerializeField] private float minNoiseDb = 30f;
-
-    [Tooltip("Gornja granica buke za normalizaciju boje.")]
     [SerializeField] private float maxNoiseDb = 85f;
 
     [Header("Tube Geometry")]
-    [Tooltip("Radijus 3D cijevi. Ovo je konstantna debljina traga.")]
     [SerializeField] private float tubeRadius = 0.055f;
 
-    [Tooltip("Broj segmenata kruga. 8 je dobro za performanse, 12 ili 16 izgleda glađe.")]
     [Range(3, 24)]
     [SerializeField] private int tubeSegments = 10;
 
-    [Tooltip("Ako je uključeno, zatvara početak i kraj cijevi.")]
     [SerializeField] private bool capEnds = true;
 
     [Header("Sampling")]
-    [Tooltip("Minimalni vremenski razmak između dva uzorka.")]
-    [SerializeField] private float minSampleInterval = 0.35f;
-
-    [Tooltip("Mali pomak prema gore da se mesh ne reže s podom.")]
+    [SerializeField] private float minSampleInterval = 0.25f;
     [SerializeField] private float verticalNudge = 0.02f;
 
     [Header("Appearance")]
-    [Tooltip("Ako je uključeno, koristi automatski gradient: plavo -> ljubičasto -> magenta -> narančasto -> crveno.")]
     [SerializeField] private bool useDefaultNoiseGradient = true;
-
     [SerializeField] private Gradient noiseGradient;
-
     [SerializeField] private bool rebuildEveryFrame = true;
     [SerializeField] private bool visible = true;
 
+    [Header("Physics / Hover")]
+    [SerializeField] private bool createHoverMeshCollider = true;
+
+    [Tooltip("Layer za noise trail. U Inspectoru obično stavi Visualization.")]
+    [SerializeField] private string visualizationLayerName = "Visualization";
+
     [Header("Time Labels")]
-    [Tooltip("Prikazuje 3 vremenske labele: sada, -30 s i -60 s.")]
     [SerializeField] private bool showTimeLabels = true;
-
-    [Tooltip("Prikazuje datum iznad prostorno-vremenske putanje.")]
     [SerializeField] private bool showDateLabel = true;
-
-    [Tooltip("Prikazuje tanku vremensku os uz labele.")]
     [SerializeField] private bool showTimeAxis = true;
-
-    [Tooltip("Horizontalni odmak labela od putanje. Ako su labele u zidu, promijeni predznak.")]
     [SerializeField] private float labelHorizontalOffset = 0.35f;
-
-    [Tooltip("Odmak po Z osi. Koristi ako želiš labele pomaknuti naprijed/nazad u sobi.")]
     [SerializeField] private float labelDepthOffset = 0.0f;
-
-    [Tooltip("Mali vertikalni pomak svih vremenskih labela.")]
     [SerializeField] private float labelVerticalNudge = 0.0f;
-
-    [Tooltip("Odmak vremenske osi od samih labela.")]
     [SerializeField] private float axisOffsetFromLabels = 0.08f;
-
     [SerializeField] private int labelFontSize = 48;
     [SerializeField] private float labelCharacterSize = 0.022f;
     [SerializeField] private Color labelColor = Color.white;
@@ -110,6 +91,7 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
     private Mesh mesh;
     private MeshFilter meshFilter;
     private MeshRenderer meshRenderer;
+    private MeshCollider meshCollider;
 
     private float lastSampleTime = -999f;
 
@@ -150,13 +132,13 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         timeTickRadius = Mathf.Max(0.005f, timeTickRadius);
 
         if (useDefaultNoiseGradient)
-        {
             noiseGradient = CreateDefaultNoiseGradient();
-        }
     }
 
     private void Awake()
     {
+        SetVisualizationLayer(gameObject);
+
         meshFilter = GetComponent<MeshFilter>();
         meshRenderer = GetComponent<MeshRenderer>();
 
@@ -166,15 +148,23 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
 
         meshFilter.sharedMesh = mesh;
 
-        if (trailMaterial != null)
+        if (createHoverMeshCollider)
         {
-            meshRenderer.sharedMaterial = trailMaterial;
+            meshCollider = GetComponent<MeshCollider>();
+
+            if (meshCollider == null)
+                meshCollider = gameObject.AddComponent<MeshCollider>();
+
+            meshCollider.sharedMesh = mesh;
+            meshCollider.convex = false;
+            meshCollider.isTrigger = false;
         }
 
+        if (trailMaterial != null)
+            meshRenderer.sharedMaterial = trailMaterial;
+
         if (useDefaultNoiseGradient || noiseGradient == null)
-        {
             noiseGradient = CreateDefaultNoiseGradient();
-        }
 
         meshRenderer.enabled = visible;
 
@@ -187,9 +177,7 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         RemoveOldSamples();
 
         if (rollingTimeWindow && rebuildEveryFrame)
-        {
             RebuildMesh();
-        }
 
         UpdateLabelsAndAxis();
     }
@@ -197,9 +185,7 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
     public void AddSample(Vector3 worldPosition, float noiseDb)
     {
         if (Time.time - lastSampleTime < minSampleInterval)
-        {
             return;
-        }
 
         lastSampleTime = Time.time;
 
@@ -213,11 +199,7 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         samples.Add(sample);
 
         if (logSamples)
-        {
-            Debug.Log(
-                $"NoiseTrail sample | pos={worldPosition}, noise={noiseDb:F1} dBA, count={samples.Count}"
-            );
-        }
+            Debug.Log($"NoiseTrail sample | pos={worldPosition}, noise={noiseDb:F1} dBA, count={samples.Count}");
 
         RemoveOldSamples();
         RebuildMesh();
@@ -229,10 +211,9 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         samples.Clear();
 
         if (mesh != null)
-        {
             mesh.Clear();
-        }
 
+        RefreshMeshCollider();
         SetLabelObjectsVisible(false);
     }
 
@@ -241,9 +222,10 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         visible = isVisible;
 
         if (meshRenderer != null)
-        {
             meshRenderer.enabled = visible;
-        }
+
+        if (meshCollider != null)
+            meshCollider.enabled = visible;
 
         SetLabelObjectsVisible(visible);
     }
@@ -251,6 +233,44 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
     public bool IsVisible()
     {
         return visible;
+    }
+
+    public bool TryGetClosestHoverInfo(Vector3 worldPoint, out NoiseHoverInfo info)
+    {
+        info = default;
+
+        if (samples.Count == 0)
+            return false;
+
+        NoiseSample closestSample = null;
+        float bestDistanceSqr = float.MaxValue;
+
+        for (int i = 0; i < samples.Count; i++)
+        {
+            Vector3 samplePoint = GetSpatioTemporalPoint(samples[i]);
+            float distanceSqr = (samplePoint - worldPoint).sqrMagnitude;
+
+            if (distanceSqr < bestDistanceSqr)
+            {
+                bestDistanceSqr = distanceSqr;
+                closestSample = samples[i];
+            }
+        }
+
+        if (closestSample == null)
+            return false;
+
+        float age = Mathf.Clamp(Time.time - closestSample.time, 0f, historySeconds);
+
+        info = new NoiseHoverInfo
+        {
+            worldPoint = GetSpatioTemporalPoint(closestSample),
+            noiseDb = closestSample.noiseDb,
+            ageSeconds = age,
+            clockTime = DateTime.Now.AddSeconds(-age)
+        };
+
+        return true;
     }
 
     private void RemoveOldSamples()
@@ -262,23 +282,20 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
             float age = now - samples[i].time;
 
             if (age > historySeconds)
-            {
                 samples.RemoveAt(i);
-            }
         }
     }
 
     private void RebuildMesh()
     {
         if (mesh == null)
-        {
             return;
-        }
 
         mesh.Clear();
 
         if (samples.Count < 2)
         {
+            RefreshMeshCollider();
             return;
         }
 
@@ -300,9 +317,7 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         Vector3[] points = new Vector3[ringCount];
 
         for (int i = 0; i < ringCount; i++)
-        {
             points[i] = GetSpatioTemporalPoint(samples[i]);
-        }
 
         for (int i = 0; i < ringCount; i++)
         {
@@ -390,6 +405,19 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
 
         mesh.RecalculateBounds();
         mesh.RecalculateNormals();
+
+        RefreshMeshCollider();
+    }
+
+    private void RefreshMeshCollider()
+    {
+        if (meshCollider == null)
+            return;
+
+        meshCollider.sharedMesh = null;
+
+        if (mesh != null && samples.Count >= 2)
+            meshCollider.sharedMesh = mesh;
     }
 
     private Vector3 GetSpatioTemporalPoint(NoiseSample sample)
@@ -410,26 +438,16 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         Vector3 tangent;
 
         if (points.Length < 2)
-        {
             tangent = Vector3.forward;
-        }
         else if (index == 0)
-        {
             tangent = points[1] - points[0];
-        }
         else if (index == points.Length - 1)
-        {
             tangent = points[index] - points[index - 1];
-        }
         else
-        {
             tangent = points[index + 1] - points[index - 1];
-        }
 
         if (tangent.sqrMagnitude < 0.000001f)
-        {
             tangent = Vector3.up;
-        }
 
         return tangent.normalized;
     }
@@ -439,16 +457,12 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         Vector3 reference = Vector3.up;
 
         if (Mathf.Abs(Vector3.Dot(tangent, reference)) > 0.92f)
-        {
             reference = Vector3.right;
-        }
 
         normal = Vector3.Cross(tangent, reference).normalized;
 
         if (normal.sqrMagnitude < 0.000001f)
-        {
             normal = Vector3.forward;
-        }
 
         binormal = Vector3.Cross(tangent, normal).normalized;
     }
@@ -465,9 +479,7 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         Gradient gradientToUse = noiseGradient;
 
         if (useDefaultNoiseGradient || gradientToUse == null)
-        {
             gradientToUse = CreateDefaultNoiseGradient();
-        }
 
         Color c = gradientToUse.Evaluate(t);
         c.a = Mathf.Lerp(0.65f, 1.00f, t);
@@ -500,39 +512,28 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         return g;
     }
 
-    // ============================================================
-    // LABELS
-    // ============================================================
-
     private void CreateLabelRootIfNeeded()
     {
         if (labelRoot != null)
-        {
             return;
-        }
 
         labelRoot = new GameObject("NoiseTrailLabels");
         labelRoot.transform.SetParent(transform, true);
+        SetVisualizationLayer(labelRoot);
     }
 
     private void CreateTimeAxisMaterialIfNeeded()
     {
         if (timeAxisMaterial != null)
-        {
             return;
-        }
 
         Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
 
         if (shader == null)
-        {
             shader = Shader.Find("Unlit/Color");
-        }
 
         if (shader == null)
-        {
             shader = Shader.Find("Sprites/Default");
-        }
 
         timeAxisMaterial = new Material(shader);
         timeAxisMaterial.color = timeAxisColor;
@@ -547,26 +548,16 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         SetLabelObjectsVisible(shouldShowAnything);
 
         if (!shouldShowAnything)
-        {
             return;
-        }
-
-        Vector3 bottomPos;
-        Vector3 middlePos;
-        Vector3 topPos;
-        Vector3 datePos;
-        Vector3 axisBottomPos;
-        Vector3 axisMiddlePos;
-        Vector3 axisTopPos;
 
         CalculateLabelPositions(
-            out bottomPos,
-            out middlePos,
-            out topPos,
-            out datePos,
-            out axisBottomPos,
-            out axisMiddlePos,
-            out axisTopPos
+            out Vector3 bottomPos,
+            out Vector3 middlePos,
+            out Vector3 topPos,
+            out Vector3 datePos,
+            out Vector3 axisBottomPos,
+            out Vector3 axisMiddlePos,
+            out Vector3 axisTopPos
         );
 
         DateTime now = DateTime.Now;
@@ -575,62 +566,24 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
 
         if (showTimeLabels)
         {
-            CreateOrUpdateTextLabel(
-                ref nowLabelObject,
-                ref nowLabelText,
-                "NoiseTimeLabel_Now",
-                FormatClockTime(now),
-                bottomPos,
-                labelFontSize,
-                labelCharacterSize,
-                labelColor,
-                TextAnchor.MiddleLeft
-            );
+            CreateOrUpdateTextLabel(ref nowLabelObject, ref nowLabelText, "NoiseTimeLabel_Now",
+                FormatClockTime(now), bottomPos, labelFontSize, labelCharacterSize, labelColor, TextAnchor.MiddleLeft);
 
-            CreateOrUpdateTextLabel(
-                ref minus30LabelObject,
-                ref minus30LabelText,
-                "NoiseTimeLabel_Minus30",
-                FormatClockTime(minus30),
-                middlePos,
-                labelFontSize,
-                labelCharacterSize,
-                labelColor,
-                TextAnchor.MiddleLeft
-            );
+            CreateOrUpdateTextLabel(ref minus30LabelObject, ref minus30LabelText, "NoiseTimeLabel_Minus30",
+                FormatClockTime(minus30), middlePos, labelFontSize, labelCharacterSize, labelColor, TextAnchor.MiddleLeft);
 
-            CreateOrUpdateTextLabel(
-                ref minus60LabelObject,
-                ref minus60LabelText,
-                "NoiseTimeLabel_Minus60",
-                FormatClockTime(minus60),
-                topPos,
-                labelFontSize,
-                labelCharacterSize,
-                labelColor,
-                TextAnchor.MiddleLeft
-            );
+            CreateOrUpdateTextLabel(ref minus60LabelObject, ref minus60LabelText, "NoiseTimeLabel_Minus60",
+                FormatClockTime(minus60), topPos, labelFontSize, labelCharacterSize, labelColor, TextAnchor.MiddleLeft);
         }
 
         if (showDateLabel)
         {
-            CreateOrUpdateTextLabel(
-                ref dateLabelObject,
-                ref dateLabelText,
-                "NoiseDateLabel",
-                FormatDate(now),
-                datePos,
-                dateLabelFontSize,
-                dateLabelCharacterSize,
-                dateLabelColor,
-                TextAnchor.MiddleCenter
-            );
+            CreateOrUpdateTextLabel(ref dateLabelObject, ref dateLabelText, "NoiseDateLabel",
+                FormatDate(now), datePos, dateLabelFontSize, dateLabelCharacterSize, dateLabelColor, TextAnchor.MiddleCenter);
         }
 
         if (showTimeAxis)
-        {
             UpdateTimeAxis(axisBottomPos, axisMiddlePos, axisTopPos);
-        }
     }
 
     private void CalculateLabelPositions(
@@ -643,30 +596,20 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         out Vector3 axisTopPos)
     {
         float maxX = transform.position.x;
-        float minX = transform.position.x;
         float zSum = 0f;
         int count = 0;
 
-        if (samples.Count > 0)
+        for (int i = 0; i < samples.Count; i++)
         {
-            for (int i = 0; i < samples.Count; i++)
-            {
-                Vector3 p = GetSpatioTemporalPoint(samples[i]);
+            Vector3 p = GetSpatioTemporalPoint(samples[i]);
 
-                if (i == 0)
-                {
-                    minX = p.x;
-                    maxX = p.x;
-                }
-                else
-                {
-                    minX = Mathf.Min(minX, p.x);
-                    maxX = Mathf.Max(maxX, p.x);
-                }
+            if (i == 0)
+                maxX = p.x;
+            else
+                maxX = Mathf.Max(maxX, p.x);
 
-                zSum += p.z;
-                count++;
-            }
+            zSum += p.z;
+            count++;
         }
 
         float averageZ = count > 0 ? zSum / count : transform.position.z;
@@ -706,17 +649,13 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         {
             labelObject = new GameObject(objectName);
             labelObject.transform.SetParent(labelRoot.transform, true);
+            SetVisualizationLayer(labelObject);
 
             textMesh = labelObject.AddComponent<TextMesh>();
             textMesh.anchor = anchor;
             textMesh.alignment = TextAlignment.Left;
 
-            WorldLabelBillboard billboard = labelObject.GetComponent<WorldLabelBillboard>();
-
-            if (billboard == null)
-            {
-                labelObject.AddComponent<WorldLabelBillboard>();
-            }
+            labelObject.AddComponent<WorldLabelBillboard>();
         }
 
         labelObject.SetActive(visible);
@@ -737,9 +676,7 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
             MeshRenderer renderer = labelObject.GetComponent<MeshRenderer>();
 
             if (renderer != null && labelFont.material != null)
-            {
                 renderer.material = labelFont.material;
-            }
         }
     }
 
@@ -751,6 +688,7 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         {
             timeAxisObject = new GameObject("NoiseTimeAxis");
             timeAxisObject.transform.SetParent(labelRoot.transform, true);
+            SetVisualizationLayer(timeAxisObject);
 
             timeAxisLine = timeAxisObject.AddComponent<LineRenderer>();
             timeAxisLine.useWorldSpace = true;
@@ -785,20 +723,17 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
             tickObject = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             tickObject.name = objectName;
             tickObject.transform.SetParent(labelRoot.transform, true);
+            SetVisualizationLayer(tickObject);
 
             Collider col = tickObject.GetComponent<Collider>();
 
             if (col != null)
-            {
                 Destroy(col);
-            }
 
             Renderer renderer = tickObject.GetComponent<Renderer>();
 
             if (renderer != null)
-            {
                 renderer.material = timeAxisMaterial;
-            }
         }
 
         tickObject.SetActive(visible && showTimeAxis);
@@ -809,9 +744,7 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
     private void SetLabelObjectsVisible(bool isVisible)
     {
         if (labelRoot != null)
-        {
             labelRoot.SetActive(isVisible);
-        }
 
         if (nowLabelObject != null)
             nowLabelObject.SetActive(isVisible && showTimeLabels);
@@ -836,6 +769,22 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
 
         if (topTickObject != null)
             topTickObject.SetActive(isVisible && showTimeAxis);
+    }
+
+    private void SetVisualizationLayer(GameObject obj)
+    {
+        if (obj == null)
+            return;
+
+        if (string.IsNullOrWhiteSpace(visualizationLayerName))
+            return;
+
+        int layer = LayerMask.NameToLayer(visualizationLayerName);
+
+        if (layer == -1)
+            return;
+
+        obj.layer = layer;
     }
 
     private string FormatClockTime(DateTime timeValue)

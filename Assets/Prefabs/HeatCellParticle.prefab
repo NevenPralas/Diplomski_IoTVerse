@@ -11,7 +11,7 @@ GameObject:
   - component: {fileID: 6173543507446784862}
   - component: {fileID: 4810663510077584851}
   - component: {fileID: 5164655129115186113}
-  m_Layer: 0
+  m_Layer: 9
   m_Name: HeatCellParticle
   m_TagString: Untagged
   m_Icon: {fileID: 0}

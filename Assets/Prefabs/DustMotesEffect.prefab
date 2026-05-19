@@ -11,7 +11,7 @@ GameObject:
   - component: {fileID: 6687199662354208215}
   - component: {fileID: 4846026306435072783}
   - component: {fileID: 2781911421695950363}
-  m_Layer: 0
+  m_Layer: 9
   m_Name: DustMotesEffect
   m_TagString: Untagged
   m_Icon: {fileID: 0}

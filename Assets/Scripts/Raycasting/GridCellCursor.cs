@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.XR.Interaction.Toolkit.Interactors;
 
@@ -27,10 +27,10 @@ public class GridCellCursor : MonoBehaviour
     [Header("Average Temperature Tooltip")]
     [SerializeField] private bool showAverageTemperatureTooltip = true;
 
-    [Tooltip("Ako je ukljuceno, labela se ne prikazuje dok je otvoren Space-Time stupac.")]
+    [Tooltip("Ako je uključeno, average labela se ne prikazuje samo za ćeliju koja već ima otvoren Space-Time stupac.")]
     [SerializeField] private bool hideAverageTooltipWhileColumnIsOpen = true;
 
-    [Tooltip("Vremenski prozor za racunanje prosjecne temperature u sekundama. 0 ili manje znaci prosjek svih sacuvanih mjerenja za celiju.")]
+    [Tooltip("Vremenski prozor za računanje prosječne temperature u sekundama. 0 ili manje znači prosjek svih sačuvanih mjerenja za ćeliju.")]
     [SerializeField] private float averageTemperatureWindowSeconds = 60f;
 
     [SerializeField] private float tooltipOffsetRight = 0.12f;
@@ -46,9 +46,6 @@ public class GridCellCursor : MonoBehaviour
 
     private GameObject tooltipObject;
     private TextMesh tooltipText;
-
-    private float nextColumnOpenCheckTime = 0f;
-    private bool cachedColumnOpen = false;
 
     public bool HasValidCell => hasValidCell;
     public Vector2Int CurrentCell => currentCell;
@@ -194,6 +191,7 @@ public class GridCellCursor : MonoBehaviour
             tooltipText.font = tooltipFont;
 
             MeshRenderer renderer = tooltipObject.GetComponent<MeshRenderer>();
+
             if (renderer != null && tooltipFont.material != null)
                 renderer.material = tooltipFont.material;
         }
@@ -209,13 +207,12 @@ public class GridCellCursor : MonoBehaviour
             return;
         }
 
-        if (hideAverageTooltipWhileColumnIsOpen && IsAnySpaceTimeColumnOpen())
+        if (hideAverageTooltipWhileColumnIsOpen && IsSpaceTimeColumnOpenForCell(gridX, gridY))
         {
             HideAverageTemperatureTooltip();
             return;
         }
 
-        // Celija se smatra obojanom ako za nju postoji barem jedno mjerenje u povijesti.
         if (!TryCalculateAverageTemperatureForCell(gridX, gridY, averageTemperatureWindowSeconds, out float averageTemperature))
         {
             HideAverageTemperatureTooltip();
@@ -266,7 +263,7 @@ public class GridCellCursor : MonoBehaviour
         if (tooltipObject == null || tooltipText == null)
             return;
 
-        tooltipText.text = $"Average Temperature: {averageTemperature:F1} \u00B0C";
+        tooltipText.text = $"Average Temperature: {averageTemperature:F1} °C";
 
         Vector3 right = Camera.main != null ? Camera.main.transform.right : Vector3.right;
         Vector3 up = Vector3.up;
@@ -286,31 +283,26 @@ public class GridCellCursor : MonoBehaviour
             tooltipObject.SetActive(false);
     }
 
-    private bool IsAnySpaceTimeColumnOpen()
+    private bool IsSpaceTimeColumnOpenForCell(int gridX, int gridY)
     {
-        if (!hideAverageTooltipWhileColumnIsOpen)
-            return false;
+        string expectedName = $"SpaceTimeColumnRoot_{gridX}_{gridY}";
 
-        // Ne provjeravamo svaki frame da nepotrebno ne obilazimo sve objekte.
-        if (Time.time < nextColumnOpenCheckTime)
-            return cachedColumnOpen;
-
-        nextColumnOpenCheckTime = Time.time + 0.15f;
-        cachedColumnOpen = false;
-
-        Transform[] allTransforms = FindObjectsOfType<Transform>();
+        Transform[] allTransforms = FindObjectsOfType<Transform>(true);
 
         for (int i = 0; i < allTransforms.Length; i++)
         {
             Transform t = allTransforms[i];
 
-            if (t != null && t.gameObject.activeInHierarchy && t.name.StartsWith("SpaceTimeColumnRoot_"))
-            {
-                cachedColumnOpen = true;
-                break;
-            }
+            if (t == null)
+                continue;
+
+            if (!t.gameObject.activeInHierarchy)
+                continue;
+
+            if (t.name == expectedName)
+                return true;
         }
 
-        return cachedColumnOpen;
+        return false;
     }
 }

@@ -1390,6 +1390,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: -6689036041284674117, guid: a1a3acc27abdbd8468e22517c626f47b, type: 3}
       insertIndex: -1
       addedObject: {fileID: 374640348}
+    - targetCorrespondingSourceObject: {fileID: -6689036041284674117, guid: a1a3acc27abdbd8468e22517c626f47b, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 374640349}
   m_SourcePrefab: {fileID: -5645937942226959685, guid: a1a3acc27abdbd8468e22517c626f47b, type: 3}
 --- !u!4 &146760863 stripped
 Transform:
@@ -2679,6 +2682,24 @@ MonoBehaviour:
   megaphoneIcon: {fileID: 1050090602}
   humidityIcon: {fileID: 897308962}
   CO2Icon: {fileID: 993522854}
+--- !u!114 &374640349
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 218336701}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d18333aa06263ac4e8eef469888a4c61, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::SwitcherSensor
+  temperatureIcon: {fileID: 1370225005}
+  megaphoneIcon: {fileID: 1050090602}
+  humidityIcon: {fileID: 897308962}
+  co2Icon: {fileID: 993522854}
+  TemperatureTracker: {fileID: 1415382485}
+  NoiseTracker: {fileID: 2127501893}
 --- !u!1 &377029587
 GameObject:
   m_ObjectHideFlags: 0
@@ -8610,8 +8631,8 @@ MonoBehaviour:
   lieHip: 0
   lieThigh: 60
   lieCalf: -165
-  poseLerpSpeed: 5
-  startStanding: 0
+  poseLerpSpeed: 1
+  startStanding: 1
   moveSpeed: 1.8
   turnSpeed: 80
   allowMovementOnlyWhenStanding: 1
@@ -8622,7 +8643,7 @@ MonoBehaviour:
   maxMoveAngleDegrees: 65
   rotateToTargetBeforeMoving: 1
   manualInputOverridesAuto: 1
-  allowExternalPostureControl: 1
+  allowExternalPostureControl: 0
   logPostureChanges: 1
   stepFrequency: 2.5
   thighSwingForward: 14
@@ -8680,10 +8701,14 @@ MonoBehaviour:
   m_GameObject: {fileID: 981247530}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: a6a460ede5160bc428d44c062ab537d7, type: 3}
+  m_Script: {fileID: 11500000, guid: 7890bab6439fa97408da354fc7bf91ff, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::RobotIgnoreAvatarLayer
-  avatarLayerName: Avatar
+  m_EditorClassIdentifier: Assembly-CSharp::RobotIgnoreVisualizationLayer
+  robotLayerName: Robot
+  visualizationLayerName: Visualization
+  playerLayerName: Avatar
+  ignoreVisualization: 1
+  ignorePlayer: 1
 --- !u!1001 &986238603
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -12615,8 +12640,8 @@ MonoBehaviour:
   targetRenderer: {fileID: 1415382487}
   heatmapTextureProperty: _HeatmapTex
   gridSizeProperty: _Size
-  gridSizeX: 30
-  gridSizeY: 30
+  gridSizeX: 15
+  gridSizeY: 15
   worldWidth: 10
   worldHeight: 10
   baselineGridX: 10
@@ -12737,6 +12762,10 @@ MonoBehaviour:
   cellSpawnChance: 1
   alphaMin: 0.04
   alphaMax: 0.1
+  visualizationLayerName: Visualization
+  removeCollidersFromParticles: 1
+  removeRigidbodiesFromParticles: 1
+  disableParticleCollisionModule: 1
 --- !u!114 &1415382493
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -12751,7 +12780,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::SpaceTimeCubeManager
   heatmap: {fileID: 1415382490}
   gridCellCursor: {fileID: 1181641074}
-  placeColumnAction: {fileID: -5274112989247405039, guid: d41568d653d00a84db68f371fdac50be, type: 3}
+  placeColumnAction: {fileID: 83097790271614945, guid: c348712bda248c246b8c49b3db54643f, type: 3}
   cubeHeight: 2
   cubeMaterial: {fileID: 2100000, guid: 2215980e84cfe734a97550d24795c402, type: 2}
   animateMainColumn: 1
@@ -12777,6 +12806,9 @@ MonoBehaviour:
   dateLabelColor: {r: 1, g: 1, b: 1, a: 1}
   spawnSound: {fileID: 8300000, guid: 51092d3cf25e177438aaa09e55d3223c, type: 3}
   audioSource: {fileID: 1415382494}
+  maxOpenColumns: 0
+  toggleColumnOnSameCell: 1
+  visualizationLayerName: Visualization
 --- !u!82 &1415382494
 AudioSource:
   m_ObjectHideFlags: 0
@@ -15691,7 +15723,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8135023674665499069, guid: 58d0a4ac86f2348deb02f3880c71378e, type: 3}
       propertyPath: m_IsActive
-      value: 1
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 8518324294302271954, guid: 58d0a4ac86f2348deb02f3880c71378e, type: 3}
       propertyPath: m_LocalPosition.x
@@ -17181,7 +17213,8 @@ GameObject:
   - component: {fileID: 2127501897}
   - component: {fileID: 2127501896}
   - component: {fileID: 2127501895}
-  m_Layer: 0
+  - component: {fileID: 2127501899}
+  m_Layer: 9
   m_Name: NoiseTrailManager
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -17283,6 +17316,8 @@ MonoBehaviour:
     m_NumAlphaKeys: 3
   rebuildEveryFrame: 1
   visible: 1
+  createHoverMeshCollider: 1
+  visualizationLayerName: Visualization
   showTimeLabels: 1
   showDateLabel: 1
   showTimeAxis: 1
@@ -17358,6 +17393,34 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2127501893}
   m_Mesh: {fileID: 0}
+--- !u!114 &2127501899
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2127501893}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 919eeb03cd56c0548b931fe97f38063c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::NoiseTrailHoverTooltip
+  noiseTrail: {fileID: 2127501896}
+  rayOrigin: {fileID: 935764300}
+  rayDistance: 50
+  hoverLayerMask:
+    serializedVersion: 2
+    m_Bits: 512
+  debugRay: 0
+  tooltipOffsetRight: 0.14
+  tooltipOffsetUp: 0.1
+  fontSize: 46
+  characterSize: 0.018
+  textColor: {r: 1, g: 1, b: 1, a: 1}
+  labelFont: {fileID: 0}
+  showMarker: 1
+  markerRadius: 0.08
+  markerColor: {r: 1, g: 1, b: 1, a: 1}
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
