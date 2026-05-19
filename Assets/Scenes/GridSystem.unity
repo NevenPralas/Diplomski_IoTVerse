@@ -8663,7 +8663,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 00fe4b863b4173d44acc00ad048d5d99, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::TurtleThingsBoardFollower
-  baseUrl: http://192.168.137.1:8080
+  baseUrl: http://192.168.19.32:8080
   username: tenant@thingsboard.org
   password: tenant
   deviceId: 0f757400-1897-11f1-a1d2-e5a5a57c1784
