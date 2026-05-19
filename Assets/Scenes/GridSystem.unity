@@ -8663,7 +8663,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 00fe4b863b4173d44acc00ad048d5d99, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::TurtleThingsBoardFollower
-  baseUrl: http://192.168.19.32:8080
+  baseUrl: http://192.168.137.1:8080
   username: tenant@thingsboard.org
   password: tenant
   deviceId: 0f757400-1897-11f1-a1d2-e5a5a57c1784
@@ -15723,7 +15723,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8135023674665499069, guid: 58d0a4ac86f2348deb02f3880c71378e, type: 3}
       propertyPath: m_IsActive
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 8518324294302271954, guid: 58d0a4ac86f2348deb02f3880c71378e, type: 3}
       propertyPath: m_LocalPosition.x
@@ -17279,14 +17279,19 @@ MonoBehaviour:
   minNoiseDb: 30
   maxNoiseDb: 85
   tubeRadius: 0.055
-  tubeSegments: 10
-  capEnds: 0
+  tubeSegments: 20
+  capEnds: 1
+  useVisualSmoothing: 1
+  interpolationStepsPerSegment: 12
+  addLiveHoldPoint: 0
+  maxVisualSegmentLength: 0.04
+  chaikinSmoothingIterations: 2
   smoothEnds: 1
-  endFadeSeconds: 4
-  minimumEndRadiusFactor: 0.05
+  endFadeSeconds: 3
+  minimumEndRadiusFactor: 0.03
   fadeAlphaAtEnds: 1
-  minimumEndAlphaFactor: 0.1
-  minSampleInterval: 0.25
+  minimumEndAlphaFactor: 0.15
+  minSampleInterval: 0.15
   verticalNudge: 0.02
   useDefaultNoiseGradient: 1
   noiseGradient:

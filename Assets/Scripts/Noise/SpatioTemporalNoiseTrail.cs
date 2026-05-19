@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 [RequireComponent(typeof(MeshFilter))]
 [RequireComponent(typeof(MeshRenderer))]
@@ -10,6 +11,13 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
     private class NoiseSample
     {
         public Vector3 worldPosition;
+        public float noiseDb;
+        public float time;
+    }
+
+    private class VisualNoisePoint
+    {
+        public Vector3 worldPoint;
         public float noiseDb;
         public float time;
     }
@@ -38,30 +46,45 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
     [Header("Tube Geometry")]
     [SerializeField] private float tubeRadius = 0.055f;
 
-    [Range(3, 24)]
-    [SerializeField] private int tubeSegments = 10;
+    [Range(6, 32)]
+    [SerializeField] private int tubeSegments = 20;
 
-    [Tooltip("Ako je uključeno, dodaje zatvorene capove. Za ljepši glatki kraj preporuka: false.")]
-    [SerializeField] private bool capEnds = false;
+    [Tooltip("Za lijep kraj ostavi uključeno. Disk je jako mali jer se cijev sužava prema kraju.")]
+    [SerializeField] private bool capEnds = true;
+
+    [Header("Visual Smoothing")]
+    [SerializeField] private bool useVisualSmoothing = true;
+
+    [Tooltip("Koliko interpoliranih točaka ide između dva stvarna samplea.")]
+    [Range(1, 32)]
+    [SerializeField] private int interpolationStepsPerSegment = 12;
+
+    [Tooltip("Ovo ostavi false. Kad je true, može stvoriti čudan vertikalni/horizontalni završetak ako podaci kasne.")]
+    [SerializeField] private bool addLiveHoldPoint = false;
+
+    [Tooltip("Ako su sampleovi udaljeni, automatski dodaje još točaka.")]
+    [SerializeField] private float maxVisualSegmentLength = 0.04f;
+
+    [Tooltip("Dodatno omekšavanje putanje. Ne radi overshoot, za razliku od CatmullRom krivulje.")]
+    [Range(0, 4)]
+    [SerializeField] private int chaikinSmoothingIterations = 2;
 
     [Header("Smooth Trail Ends")]
     [SerializeField] private bool smoothEnds = true;
 
-    [Tooltip("Koliko sekundi na početku i kraju vremenskog prozora se krivulja postepeno sužava.")]
-    [SerializeField] private float endFadeSeconds = 4f;
+    [Tooltip("Koliko sekundi od kraja cijev postepeno postaje tanja.")]
+    [SerializeField] private float endFadeSeconds = 3f;
 
-    [Tooltip("Najmanji radijus na samom kraju krivulje. 0.05 znači skoro u špic.")]
     [Range(0f, 1f)]
-    [SerializeField] private float minimumEndRadiusFactor = 0.05f;
+    [SerializeField] private float minimumEndRadiusFactor = 0.03f;
 
-    [Tooltip("Ako je uključeno, krajevi osim suženja postaju i prozirniji.")]
     [SerializeField] private bool fadeAlphaAtEnds = true;
 
     [Range(0f, 1f)]
-    [SerializeField] private float minimumEndAlphaFactor = 0.1f;
+    [SerializeField] private float minimumEndAlphaFactor = 0.15f;
 
     [Header("Sampling")]
-    [SerializeField] private float minSampleInterval = 0.25f;
+    [SerializeField] private float minSampleInterval = 0.15f;
     [SerializeField] private float verticalNudge = 0.02f;
 
     [Header("Appearance")]
@@ -73,15 +96,9 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
     [Header("Physics / Hover")]
     [SerializeField] private bool createHoverMeshCollider = true;
 
-    [Tooltip("Layer za noise trail. Stavi Visualization.")]
     [SerializeField] private string visualizationLayerName = "Visualization";
-
-    [Tooltip("Layer avatara/igrača. Noise trail neće fizički kolajdati s ovim layerom.")]
-    [SerializeField] private string playerLayerName = "Player";
-
-    [Tooltip("Layer robota. Noise trail neće fizički kolajdati s ovim layerom.")]
+    [SerializeField] private string playerLayerName = "Avatar";
     [SerializeField] private string robotLayerName = "Robot";
-
     [SerializeField] private bool ignorePlayerAndRobotCollisions = true;
 
     [Header("Time Labels")]
@@ -150,12 +167,13 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
     {
         historySeconds = Mathf.Max(1f, historySeconds);
         timeHeight = Mathf.Max(0.1f, timeHeight);
-        minSampleInterval = Mathf.Max(0.05f, minSampleInterval);
+        minSampleInterval = Mathf.Max(0.02f, minSampleInterval);
         tubeRadius = Mathf.Max(0.005f, tubeRadius);
-        tubeSegments = Mathf.Clamp(tubeSegments, 3, 24);
+        tubeSegments = Mathf.Clamp(tubeSegments, 6, 32);
         timeAxisWidth = Mathf.Max(0.001f, timeAxisWidth);
         timeTickRadius = Mathf.Max(0.005f, timeTickRadius);
         endFadeSeconds = Mathf.Max(0.1f, endFadeSeconds);
+        maxVisualSegmentLength = Mathf.Max(0.01f, maxVisualSegmentLength);
 
         if (useDefaultNoiseGradient)
             noiseGradient = CreateDefaultNoiseGradient();
@@ -170,6 +188,7 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
 
         mesh = new Mesh();
         mesh.name = "SpatioTemporalNoiseTrailTubeMesh";
+        mesh.indexFormat = IndexFormat.UInt32;
         mesh.MarkDynamic();
 
         meshFilter.sharedMesh = mesh;
@@ -321,13 +340,15 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
 
         mesh.Clear();
 
-        if (samples.Count < 2)
+        List<VisualNoisePoint> visualPoints = BuildVisualPoints();
+
+        if (visualPoints.Count < 2)
         {
             RefreshMeshCollider();
             return;
         }
 
-        int ringCount = samples.Count;
+        int ringCount = visualPoints.Count;
         int verticesPerRing = tubeSegments;
 
         int tubeVertexCount = ringCount * verticesPerRing;
@@ -343,44 +364,43 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         int[] triangles = new int[totalTriangleIndexCount];
 
         Vector3[] points = new Vector3[ringCount];
-        float[] radiusFactors = new float[ringCount];
-        Color[] sampleColors = new Color[ringCount];
+        Vector3[] tangents = new Vector3[ringCount];
+        Vector3[] normals = new Vector3[ringCount];
+        Vector3[] binormals = new Vector3[ringCount];
+
+        for (int i = 0; i < ringCount; i++)
+            points[i] = visualPoints[i].worldPoint;
+
+        BuildParallelTransportFrames(points, tangents, normals, binormals);
+
+        Color[] ringColors = new Color[ringCount];
+        float[] ringRadii = new float[ringCount];
 
         for (int i = 0; i < ringCount; i++)
         {
-            points[i] = GetSpatioTemporalPoint(samples[i]);
+            float endFactor = GetSmoothEndFactor(visualPoints[i].time);
+            float ringRadius = tubeRadius * Mathf.Lerp(minimumEndRadiusFactor, 1f, endFactor);
 
-            float endFactor = GetSmoothEndFactor(samples[i]);
-
-            radiusFactors[i] = Mathf.Lerp(minimumEndRadiusFactor, 1f, endFactor);
-
-            Color c = GetNoiseColor(samples[i].noiseDb);
+            Color sampleColor = GetNoiseColor(visualPoints[i].noiseDb);
 
             if (fadeAlphaAtEnds)
-                c.a *= Mathf.Lerp(minimumEndAlphaFactor, 1f, endFactor);
+                sampleColor.a *= Mathf.Lerp(minimumEndAlphaFactor, 1f, endFactor);
 
-            sampleColors[i] = c;
-        }
-
-        for (int i = 0; i < ringCount; i++)
-        {
-            Vector3 tangent = GetTubeTangent(points, i);
-            BuildRingBasis(tangent, out Vector3 normal, out Vector3 binormal);
-
-            float ringRadius = tubeRadius * radiusFactors[i];
+            ringColors[i] = sampleColor;
+            ringRadii[i] = ringRadius;
 
             for (int s = 0; s < tubeSegments; s++)
             {
                 float angle = (Mathf.PI * 2f * s) / tubeSegments;
 
                 Vector3 offset =
-                    normal * Mathf.Cos(angle) * ringRadius +
-                    binormal * Mathf.Sin(angle) * ringRadius;
+                    normals[i] * Mathf.Cos(angle) * ringRadius +
+                    binormals[i] * Mathf.Sin(angle) * ringRadius;
 
                 int vertexIndex = i * tubeSegments + s;
 
                 vertices[vertexIndex] = transform.InverseTransformPoint(points[i] + offset);
-                colors[vertexIndex] = sampleColors[i];
+                colors[vertexIndex] = sampleColor;
             }
         }
 
@@ -418,16 +438,16 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
             vertices[startCenterIndex] = transform.InverseTransformPoint(points[0]);
             vertices[endCenterIndex] = transform.InverseTransformPoint(points[ringCount - 1]);
 
-            colors[startCenterIndex] = sampleColors[0];
-            colors[endCenterIndex] = sampleColors[ringCount - 1];
+            colors[startCenterIndex] = ringColors[0];
+            colors[endCenterIndex] = ringColors[ringCount - 1];
 
             for (int s = 0; s < tubeSegments; s++)
             {
                 int sNext = (s + 1) % tubeSegments;
 
                 triangles[triangleCursor++] = startCenterIndex;
-                triangles[triangleCursor++] = sNext;
                 triangles[triangleCursor++] = s;
+                triangles[triangleCursor++] = sNext;
             }
 
             int endRingStart = (ringCount - 1) * tubeSegments;
@@ -437,8 +457,8 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
                 int sNext = (s + 1) % tubeSegments;
 
                 triangles[triangleCursor++] = endCenterIndex;
-                triangles[triangleCursor++] = endRingStart + s;
                 triangles[triangleCursor++] = endRingStart + sNext;
+                triangles[triangleCursor++] = endRingStart + s;
             }
         }
 
@@ -448,16 +468,188 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
 
         mesh.RecalculateBounds();
         mesh.RecalculateNormals();
+        mesh.RecalculateTangents();
 
         RefreshMeshCollider();
     }
 
-    private float GetSmoothEndFactor(NoiseSample sample)
+    private List<VisualNoisePoint> BuildVisualPoints()
+    {
+        List<VisualNoisePoint> result = new List<VisualNoisePoint>();
+
+        if (samples.Count == 0)
+            return result;
+
+        List<NoiseSample> source = new List<NoiseSample>(samples);
+
+        if (addLiveHoldPoint && source.Count > 0)
+        {
+            NoiseSample last = source[source.Count - 1];
+
+            if (Time.time - last.time > 0.02f)
+            {
+                source.Add(new NoiseSample
+                {
+                    worldPosition = last.worldPosition,
+                    noiseDb = last.noiseDb,
+                    time = Time.time
+                });
+            }
+        }
+
+        if (!useVisualSmoothing || source.Count < 2)
+        {
+            for (int i = 0; i < source.Count; i++)
+            {
+                result.Add(new VisualNoisePoint
+                {
+                    worldPoint = GetSpatioTemporalPoint(source[i]),
+                    noiseDb = source[i].noiseDb,
+                    time = source[i].time
+                });
+            }
+
+            return result;
+        }
+
+        for (int i = 0; i < source.Count - 1; i++)
+        {
+            NoiseSample a = source[i];
+            NoiseSample b = source[i + 1];
+
+            Vector3 aWorld = GetSpatioTemporalPoint(a);
+            Vector3 bWorld = GetSpatioTemporalPoint(b);
+
+            float segmentDistance = Vector3.Distance(aWorld, bWorld);
+
+            int distanceBasedSteps = maxVisualSegmentLength > 0.001f
+                ? Mathf.CeilToInt(segmentDistance / maxVisualSegmentLength)
+                : 1;
+
+            int steps = Mathf.Max(interpolationStepsPerSegment, distanceBasedSteps);
+            steps = Mathf.Clamp(steps, 1, 64);
+
+            for (int step = 0; step < steps; step++)
+            {
+                float t = step / (float)steps;
+
+                result.Add(new VisualNoisePoint
+                {
+                    worldPoint = Vector3.Lerp(aWorld, bWorld, t),
+                    noiseDb = Mathf.Lerp(a.noiseDb, b.noiseDb, t),
+                    time = Mathf.Lerp(a.time, b.time, t)
+                });
+            }
+        }
+
+        NoiseSample lastSource = source[source.Count - 1];
+
+        result.Add(new VisualNoisePoint
+        {
+            worldPoint = GetSpatioTemporalPoint(lastSource),
+            noiseDb = lastSource.noiseDb,
+            time = lastSource.time
+        });
+
+        for (int i = 0; i < chaikinSmoothingIterations; i++)
+            result = ChaikinSmooth(result);
+
+        return result;
+    }
+
+    private List<VisualNoisePoint> ChaikinSmooth(List<VisualNoisePoint> input)
+    {
+        if (input == null || input.Count < 3)
+            return input;
+
+        List<VisualNoisePoint> output = new List<VisualNoisePoint>();
+        output.Add(input[0]);
+
+        for (int i = 0; i < input.Count - 1; i++)
+        {
+            VisualNoisePoint a = input[i];
+            VisualNoisePoint b = input[i + 1];
+
+            output.Add(new VisualNoisePoint
+            {
+                worldPoint = Vector3.Lerp(a.worldPoint, b.worldPoint, 0.25f),
+                noiseDb = Mathf.Lerp(a.noiseDb, b.noiseDb, 0.25f),
+                time = Mathf.Lerp(a.time, b.time, 0.25f)
+            });
+
+            output.Add(new VisualNoisePoint
+            {
+                worldPoint = Vector3.Lerp(a.worldPoint, b.worldPoint, 0.75f),
+                noiseDb = Mathf.Lerp(a.noiseDb, b.noiseDb, 0.75f),
+                time = Mathf.Lerp(a.time, b.time, 0.75f)
+            });
+        }
+
+        output.Add(input[input.Count - 1]);
+        return output;
+    }
+
+    private void BuildParallelTransportFrames(
+        Vector3[] points,
+        Vector3[] tangents,
+        Vector3[] normals,
+        Vector3[] binormals)
+    {
+        int count = points.Length;
+
+        for (int i = 0; i < count; i++)
+            tangents[i] = GetTubeTangent(points, i);
+
+        Vector3 reference = Vector3.up;
+
+        if (Mathf.Abs(Vector3.Dot(tangents[0], reference)) > 0.92f)
+            reference = Vector3.right;
+
+        normals[0] = Vector3.Cross(tangents[0], reference).normalized;
+
+        if (normals[0].sqrMagnitude < 0.000001f)
+            normals[0] = Vector3.forward;
+
+        binormals[0] = Vector3.Cross(tangents[0], normals[0]).normalized;
+
+        for (int i = 1; i < count; i++)
+        {
+            Vector3 previousTangent = tangents[i - 1];
+            Vector3 currentTangent = tangents[i];
+
+            Vector3 rotationAxis = Vector3.Cross(previousTangent, currentTangent);
+            float axisMagnitude = rotationAxis.magnitude;
+
+            if (axisMagnitude > 0.000001f)
+            {
+                rotationAxis /= axisMagnitude;
+
+                float dot = Mathf.Clamp(Vector3.Dot(previousTangent, currentTangent), -1f, 1f);
+                float angle = Mathf.Acos(dot) * Mathf.Rad2Deg;
+
+                Quaternion transportRotation = Quaternion.AngleAxis(angle, rotationAxis);
+                normals[i] = transportRotation * normals[i - 1];
+            }
+            else
+            {
+                normals[i] = normals[i - 1];
+            }
+
+            normals[i] = Vector3.ProjectOnPlane(normals[i], currentTangent).normalized;
+
+            if (normals[i].sqrMagnitude < 0.000001f)
+                normals[i] = normals[i - 1];
+
+            binormals[i] = Vector3.Cross(currentTangent, normals[i]).normalized;
+        }
+    }
+
+    private float GetSmoothEndFactor(float sampleTime)
     {
         if (!smoothEnds)
             return 1f;
 
-        float age = Mathf.Clamp(Time.time - sample.time, 0f, historySeconds);
+        float age = Mathf.Clamp(Time.time - sampleTime, 0f, historySeconds);
 
         float newestFactor = Mathf.Clamp01(age / endFadeSeconds);
         float oldestFactor = Mathf.Clamp01((historySeconds - age) / endFadeSeconds);
@@ -540,21 +732,6 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         return tangent.normalized;
     }
 
-    private void BuildRingBasis(Vector3 tangent, out Vector3 normal, out Vector3 binormal)
-    {
-        Vector3 reference = Vector3.up;
-
-        if (Mathf.Abs(Vector3.Dot(tangent, reference)) > 0.92f)
-            reference = Vector3.right;
-
-        normal = Vector3.Cross(tangent, reference).normalized;
-
-        if (normal.sqrMagnitude < 0.000001f)
-            normal = Vector3.forward;
-
-        binormal = Vector3.Cross(tangent, normal).normalized;
-    }
-
     private float NormalizeNoise(float noiseDb)
     {
         return Mathf.Clamp01(Mathf.InverseLerp(minNoiseDb, maxNoiseDb, noiseDb));
@@ -615,6 +792,11 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         if (timeAxisMaterial != null)
             return;
 
+        timeAxisMaterial = CreateUnlitRuntimeMaterial(timeAxisColor);
+    }
+
+    private Material CreateUnlitRuntimeMaterial(Color color)
+    {
         Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
 
         if (shader == null)
@@ -623,8 +805,30 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         if (shader == null)
             shader = Shader.Find("Sprites/Default");
 
-        timeAxisMaterial = new Material(shader);
-        timeAxisMaterial.color = timeAxisColor;
+        Material material = new Material(shader);
+        SetMaterialColor(material, color);
+
+        return material;
+    }
+
+    private void SetMaterialColor(Material material, Color color)
+    {
+        if (material == null)
+            return;
+
+        material.color = color;
+
+        if (material.HasProperty("_BaseColor"))
+            material.SetColor("_BaseColor", color);
+
+        if (material.HasProperty("_Color"))
+            material.SetColor("_Color", color);
+
+        if (material.HasProperty("_EmissionColor"))
+        {
+            material.EnableKeyword("_EMISSION");
+            material.SetColor("_EmissionColor", color * 1.5f);
+        }
     }
 
     private void UpdateLabelsAndAxis()
@@ -784,8 +988,8 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
             timeAxisLine.material = timeAxisMaterial;
             timeAxisLine.startWidth = timeAxisWidth;
             timeAxisLine.endWidth = timeAxisWidth;
-            timeAxisLine.numCapVertices = 4;
-            timeAxisLine.numCornerVertices = 4;
+            timeAxisLine.numCapVertices = 8;
+            timeAxisLine.numCornerVertices = 8;
         }
 
         timeAxisObject.SetActive(visible && showTimeAxis);
