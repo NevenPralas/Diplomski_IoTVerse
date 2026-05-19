@@ -17280,7 +17280,12 @@ MonoBehaviour:
   maxNoiseDb: 85
   tubeRadius: 0.055
   tubeSegments: 10
-  capEnds: 1
+  capEnds: 0
+  smoothEnds: 1
+  endFadeSeconds: 4
+  minimumEndRadiusFactor: 0.05
+  fadeAlphaAtEnds: 1
+  minimumEndAlphaFactor: 0.1
   minSampleInterval: 0.25
   verticalNudge: 0.02
   useDefaultNoiseGradient: 1
@@ -17318,6 +17323,9 @@ MonoBehaviour:
   visible: 1
   createHoverMeshCollider: 1
   visualizationLayerName: Visualization
+  playerLayerName: Avatar
+  robotLayerName: Robot
+  ignorePlayerAndRobotCollisions: 1
   showTimeLabels: 1
   showDateLabel: 1
   showTimeAxis: 1

@@ -41,7 +41,24 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
     [Range(3, 24)]
     [SerializeField] private int tubeSegments = 10;
 
-    [SerializeField] private bool capEnds = true;
+    [Tooltip("Ako je uključeno, dodaje zatvorene capove. Za ljepši glatki kraj preporuka: false.")]
+    [SerializeField] private bool capEnds = false;
+
+    [Header("Smooth Trail Ends")]
+    [SerializeField] private bool smoothEnds = true;
+
+    [Tooltip("Koliko sekundi na početku i kraju vremenskog prozora se krivulja postepeno sužava.")]
+    [SerializeField] private float endFadeSeconds = 4f;
+
+    [Tooltip("Najmanji radijus na samom kraju krivulje. 0.05 znači skoro u špic.")]
+    [Range(0f, 1f)]
+    [SerializeField] private float minimumEndRadiusFactor = 0.05f;
+
+    [Tooltip("Ako je uključeno, krajevi osim suženja postaju i prozirniji.")]
+    [SerializeField] private bool fadeAlphaAtEnds = true;
+
+    [Range(0f, 1f)]
+    [SerializeField] private float minimumEndAlphaFactor = 0.1f;
 
     [Header("Sampling")]
     [SerializeField] private float minSampleInterval = 0.25f;
@@ -56,8 +73,16 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
     [Header("Physics / Hover")]
     [SerializeField] private bool createHoverMeshCollider = true;
 
-    [Tooltip("Layer za noise trail. U Inspectoru obično stavi Visualization.")]
+    [Tooltip("Layer za noise trail. Stavi Visualization.")]
     [SerializeField] private string visualizationLayerName = "Visualization";
+
+    [Tooltip("Layer avatara/igrača. Noise trail neće fizički kolajdati s ovim layerom.")]
+    [SerializeField] private string playerLayerName = "Player";
+
+    [Tooltip("Layer robota. Noise trail neće fizički kolajdati s ovim layerom.")]
+    [SerializeField] private string robotLayerName = "Robot";
+
+    [SerializeField] private bool ignorePlayerAndRobotCollisions = true;
 
     [Header("Time Labels")]
     [SerializeField] private bool showTimeLabels = true;
@@ -130,6 +155,7 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         tubeSegments = Mathf.Clamp(tubeSegments, 3, 24);
         timeAxisWidth = Mathf.Max(0.001f, timeAxisWidth);
         timeTickRadius = Mathf.Max(0.005f, timeTickRadius);
+        endFadeSeconds = Mathf.Max(0.1f, endFadeSeconds);
 
         if (useDefaultNoiseGradient)
             noiseGradient = CreateDefaultNoiseGradient();
@@ -158,6 +184,8 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
             meshCollider.sharedMesh = mesh;
             meshCollider.convex = false;
             meshCollider.isTrigger = false;
+
+            ApplyColliderCollisionFilters();
         }
 
         if (trailMaterial != null)
@@ -315,29 +343,44 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         int[] triangles = new int[totalTriangleIndexCount];
 
         Vector3[] points = new Vector3[ringCount];
+        float[] radiusFactors = new float[ringCount];
+        Color[] sampleColors = new Color[ringCount];
 
         for (int i = 0; i < ringCount; i++)
+        {
             points[i] = GetSpatioTemporalPoint(samples[i]);
+
+            float endFactor = GetSmoothEndFactor(samples[i]);
+
+            radiusFactors[i] = Mathf.Lerp(minimumEndRadiusFactor, 1f, endFactor);
+
+            Color c = GetNoiseColor(samples[i].noiseDb);
+
+            if (fadeAlphaAtEnds)
+                c.a *= Mathf.Lerp(minimumEndAlphaFactor, 1f, endFactor);
+
+            sampleColors[i] = c;
+        }
 
         for (int i = 0; i < ringCount; i++)
         {
             Vector3 tangent = GetTubeTangent(points, i);
             BuildRingBasis(tangent, out Vector3 normal, out Vector3 binormal);
 
-            Color sampleColor = GetNoiseColor(samples[i].noiseDb);
+            float ringRadius = tubeRadius * radiusFactors[i];
 
             for (int s = 0; s < tubeSegments; s++)
             {
                 float angle = (Mathf.PI * 2f * s) / tubeSegments;
 
                 Vector3 offset =
-                    normal * Mathf.Cos(angle) * tubeRadius +
-                    binormal * Mathf.Sin(angle) * tubeRadius;
+                    normal * Mathf.Cos(angle) * ringRadius +
+                    binormal * Mathf.Sin(angle) * ringRadius;
 
                 int vertexIndex = i * tubeSegments + s;
 
                 vertices[vertexIndex] = transform.InverseTransformPoint(points[i] + offset);
-                colors[vertexIndex] = sampleColor;
+                colors[vertexIndex] = sampleColors[i];
             }
         }
 
@@ -375,8 +418,8 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
             vertices[startCenterIndex] = transform.InverseTransformPoint(points[0]);
             vertices[endCenterIndex] = transform.InverseTransformPoint(points[ringCount - 1]);
 
-            colors[startCenterIndex] = GetNoiseColor(samples[0].noiseDb);
-            colors[endCenterIndex] = GetNoiseColor(samples[ringCount - 1].noiseDb);
+            colors[startCenterIndex] = sampleColors[0];
+            colors[endCenterIndex] = sampleColors[ringCount - 1];
 
             for (int s = 0; s < tubeSegments; s++)
             {
@@ -409,6 +452,27 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         RefreshMeshCollider();
     }
 
+    private float GetSmoothEndFactor(NoiseSample sample)
+    {
+        if (!smoothEnds)
+            return 1f;
+
+        float age = Mathf.Clamp(Time.time - sample.time, 0f, historySeconds);
+
+        float newestFactor = Mathf.Clamp01(age / endFadeSeconds);
+        float oldestFactor = Mathf.Clamp01((historySeconds - age) / endFadeSeconds);
+
+        float factor = Mathf.Min(newestFactor, oldestFactor);
+
+        return SmoothStep01(factor);
+    }
+
+    private float SmoothStep01(float t)
+    {
+        t = Mathf.Clamp01(t);
+        return t * t * (3f - 2f * t);
+    }
+
     private void RefreshMeshCollider()
     {
         if (meshCollider == null)
@@ -418,6 +482,30 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
 
         if (mesh != null && samples.Count >= 2)
             meshCollider.sharedMesh = mesh;
+
+        ApplyColliderCollisionFilters();
+    }
+
+    private void ApplyColliderCollisionFilters()
+    {
+        if (meshCollider == null)
+            return;
+
+        if (!ignorePlayerAndRobotCollisions)
+            return;
+
+        LayerMask excludeMask = 0;
+
+        int playerLayer = LayerMask.NameToLayer(playerLayerName);
+        int robotLayer = LayerMask.NameToLayer(robotLayerName);
+
+        if (playerLayer != -1)
+            excludeMask |= 1 << playerLayer;
+
+        if (robotLayer != -1)
+            excludeMask |= 1 << robotLayer;
+
+        meshCollider.excludeLayers |= excludeMask;
     }
 
     private Vector3 GetSpatioTemporalPoint(NoiseSample sample)
