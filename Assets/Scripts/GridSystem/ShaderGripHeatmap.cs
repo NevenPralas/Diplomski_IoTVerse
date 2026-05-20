@@ -5,10 +5,6 @@ using UnityEngine;
 [RequireComponent(typeof(Renderer))]
 public class ShaderGridHeatmap : MonoBehaviour
 {
-    /* relative time - relativno vrijeme od pocetka simulacije
-     * temperature - izmjerena temperatura
-     * (relative time, temperature) za 1 celiju
-     */
     [Serializable]
     public class CellTemperatureSample
     {
@@ -29,7 +25,7 @@ public class ShaderGridHeatmap : MonoBehaviour
     [SerializeField] private string heatmapTextureProperty = "_HeatmapTex";
     [SerializeField] private string gridSizeProperty = "_Size";
 
-    [Header("Grid Settings")] // velicina celija
+    [Header("Grid Settings")]
     [SerializeField] private int gridSizeX = 10;
     [SerializeField] private int gridSizeY = 10;
     [SerializeField] private float worldWidth = 10f;
@@ -62,10 +58,10 @@ public class ShaderGridHeatmap : MonoBehaviour
     [Header("Debug / Fake Preview")]
     [SerializeField] private bool generateRandomCellsOnStart = false;
     [SerializeField] private int randomCellsCount = 12;
-    [SerializeField] private bool clearBeforeRandomFill = true; // prije random bojanja brise se postojeca heatmapa
+    [SerializeField] private bool clearBeforeRandomFill = true;
 
     [Header("Cell History")]
-    [SerializeField] private float historyRetentionSeconds = 180f; // koliko dugo se cuva povijest mjerenja za celiju
+    [SerializeField] private float historyRetentionSeconds = 180f;
 
     [Header("Heatmap Display Aggregation")]
     [Tooltip("Ako je ukljuceno, osnovna boja celije prikazuje srednju temperaturu umjesto zadnje izmjerene temperature.")]
@@ -82,7 +78,6 @@ public class ShaderGridHeatmap : MonoBehaviour
 
     private float simulationStartTime;
 
-    // za kljuc (koordinate celije) daj vrijednost (mjerenja za tu celiju)
     private readonly Dictionary<Vector2Int, List<CellTemperatureSample>> cellHistory =
         new Dictionary<Vector2Int, List<CellTemperatureSample>>();
 
@@ -206,9 +201,6 @@ public class ShaderGridHeatmap : MonoBehaviour
         if (gridX < 0 || gridX >= gridSizeX || gridY < 0 || gridY >= gridSizeY)
             return;
 
-        // Prvo spremamo novo mjerenje, a tek zatim racunamo vrijednost koja ce se
-        // prikazati na osnovnoj heatmapi. Tako boja celije predstavlja srednju
-        // temperaturu celije, a ne samo zadnje izmjereno ocitanje.
         RecordCellSample(gridX, gridY, temperature);
 
         float displayedTemperature = GetDisplayedTemperatureForCell(gridX, gridY, temperature);
@@ -231,7 +223,6 @@ public class ShaderGridHeatmap : MonoBehaviour
 
         float relativeTime = Time.time - simulationStartTime;
 
-        // Nemoj spamati potpuno identicne uzastopne zapise
         if (samples.Count > 0)
         {
             CellTemperatureSample last = samples[samples.Count - 1];
@@ -330,29 +321,17 @@ public class ShaderGridHeatmap : MonoBehaviour
 
     private Color GetTemperatureColor(float temperature)
     {
-        // Ako su min i max isti, izbjegavamo dijeljenje / cudno mapiranje.
         if (Mathf.Approximately(minTemperature, maxTemperature))
             return highTemperatureColor;
 
-        // Pretvara temperaturu u vrijednost od 0 do 1.
-        // minTemperature -> 0
-        // maxTemperature -> 1
         float t = Mathf.InverseLerp(minTemperature, maxTemperature, temperature);
         t = Mathf.Clamp01(t);
 
-        // Ako korisnik zeli samo 2 boje:
-        // lowTemperatureColor -> highTemperatureColor
         if (gradientColorCount == 2)
-        {
             return Color.Lerp(lowTemperatureColor, highTemperatureColor, t);
-        }
 
-        // Ako korisnik zeli 3 boje:
-        // lowTemperatureColor -> middleTemperatureColor -> highTemperatureColor
         if (t <= 0.5f)
-        {
             return Color.Lerp(lowTemperatureColor, middleTemperatureColor, t / 0.5f);
-        }
 
         return Color.Lerp(middleTemperatureColor, highTemperatureColor, (t - 0.5f) / 0.5f);
     }
@@ -404,5 +383,20 @@ public class ShaderGridHeatmap : MonoBehaviour
     public float GetCellHeight()
     {
         return cellHeight;
+    }
+
+    public float GetMinTemperature()
+    {
+        return minTemperature;
+    }
+
+    public float GetMaxTemperature()
+    {
+        return maxTemperature;
+    }
+
+    public float GetMiddleTemperature()
+    {
+        return (minTemperature + maxTemperature) * 0.5f;
     }
 }

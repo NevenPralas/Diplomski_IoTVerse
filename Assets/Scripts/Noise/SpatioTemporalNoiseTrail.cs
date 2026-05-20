@@ -374,7 +374,6 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         BuildParallelTransportFrames(points, tangents, normals, binormals);
 
         Color[] ringColors = new Color[ringCount];
-        float[] ringRadii = new float[ringCount];
 
         for (int i = 0; i < ringCount; i++)
         {
@@ -387,7 +386,6 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
                 sampleColor.a *= Mathf.Lerp(minimumEndAlphaFactor, 1f, endFactor);
 
             ringColors[i] = sampleColor;
-            ringRadii[i] = ringRadius;
 
             for (int s = 0; s < tubeSegments; s++)
             {
@@ -1099,5 +1097,25 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         Gizmos.DrawLine(baseCenter, topCenter);
         Gizmos.DrawWireSphere(baseCenter, tubeRadius);
         Gizmos.DrawWireSphere(topCenter, tubeRadius);
+    }
+
+    public float GetMinNoiseDb()
+    {
+        return minNoiseDb;
+    }
+
+    public float GetMaxNoiseDb()
+    {
+        return maxNoiseDb;
+    }
+
+    public float GetMiddleNoiseDb()
+    {
+        return (minNoiseDb + maxNoiseDb) * 0.5f;
+    }
+
+    public Color GetColorForNoiseDb(float noiseDb)
+    {
+        return GetNoiseColor(noiseDb);
     }
 }
