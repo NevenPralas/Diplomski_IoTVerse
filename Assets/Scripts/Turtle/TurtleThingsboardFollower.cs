@@ -60,6 +60,13 @@ public class TurtleThingsBoardFollower : MonoBehaviour
     [Tooltip("Ako je uključeno, pri svakom dohvatu ispisuje noise vrijednost u Console.")]
     [SerializeField] private bool logNoiseTelemetry = true;
 
+    [Header("Noise Bubble Grid")]
+    [Tooltip("Nova vizualizacija buke balonima po grid ćelijama.")]
+    [SerializeField] private NoiseBubbleGrid noiseBubbleGrid;
+
+    [Tooltip("Ako je uključeno, vrijednost noise iz ThingsBoarda dodaje se u balon za trenutnu grid ćeliju.")]
+    [SerializeField] private bool addNoiseBubbleSampleEveryPoll = true;
+
     [Header("Real Go2 Posture Sync")]
     [SerializeField] private bool enablePostureSync = true;
 
@@ -277,6 +284,13 @@ public class TurtleThingsBoardFollower : MonoBehaviour
                     noiseTrail.AddSample(newTarget, noiseDb);
                 else
                     Debug.LogWarning("NoiseTrail referenca nije postavljena na TurtleThingsBoardFollower.");
+            }
+            if (addNoiseBubbleSampleEveryPoll)
+            {
+                if (noiseBubbleGrid != null)
+                    noiseBubbleGrid.AddNoiseSample(newTarget, noiseDb);
+                else
+                    Debug.LogWarning("NoiseBubbleGrid referenca nije postavljena na TurtleThingsBoardFollower.");
             }
 
             if (logNoiseTelemetry)
