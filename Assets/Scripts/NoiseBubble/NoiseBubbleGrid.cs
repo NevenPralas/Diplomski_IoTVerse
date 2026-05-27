@@ -11,10 +11,12 @@ public class NoiseBubbleGrid : MonoBehaviour
         public GameObject bubbleObject;
         public Renderer bubbleRenderer;
         public Material bubbleMaterial;
+        public SphereCollider bubbleCollider;
 
         public float latestNoiseDb;
         public float targetDiameter;
         public float currentDiameter;
+        public float stableDisplayDiameter;
         public float lastUpdateTime;
 
         public readonly List<NoiseSample> samples = new List<NoiseSample>();
@@ -33,103 +35,81 @@ public class NoiseBubbleGrid : MonoBehaviour
         }
     }
 
+    public struct NoiseBubbleHoverInfo
+    {
+        public Vector3 worldPoint;
+        public Vector3 bubbleCenter;
+        public float noiseDb;
+        public float ageSeconds;
+        public Vector2Int cell;
+    }
+
     [Header("References")]
-    [Tooltip("Grid objekt koji već ima ShaderGridHeatmap. Koristi se samo za računanje ćelija i centra ćelije.")]
     [SerializeField] private ShaderGridHeatmap heatmap;
-
-    [Tooltip("Opcionalni parent za sve balone. Ako je prazno, skripta sama napravi root objekt.")]
     [SerializeField] private Transform bubblesParent;
-
-    [Tooltip("Opcionalni materijal za balone. Ako je prazno, skripta sama napravi URP/Lit materijal.")]
     [SerializeField] private Material bubbleMaterialTemplate;
 
     [Header("Noise Mapping")]
-    [Tooltip("Donja granica buke za mapiranje boje i veličine.")]
     [SerializeField] private float minNoiseDb = 30f;
-
-    [Tooltip("Gornja granica buke za mapiranje boje i veličine.")]
     [SerializeField] private float maxNoiseDb = 85f;
-
-    [Tooltip("Ako je uključeno, balon koristi prosjek mjerenja u zadnjih historySeconds umjesto zadnje vrijednosti.")]
     [SerializeField] private bool useAverageOfRecentSamples = false;
-
-    [Tooltip("Vremenski prozor za povijest po ćeliji. 60 = zadnja minuta.")]
     [SerializeField] private float historySeconds = 60f;
 
     [Header("Bubble Size")]
-    [Tooltip("Najmanji promjer balona za minNoiseDb.")]
     [SerializeField] private float minBubbleDiameter = 0.12f;
-
-    [Tooltip("Najveći promjer balona za maxNoiseDb.")]
     [SerializeField] private float maxBubbleDiameter = 0.55f;
-
-    [Tooltip("Koliko brzo balon prelazi prema novoj veličini kad dođe novo mjerenje.")]
     [SerializeField] private float sizeSmoothSpeed = 8f;
-
-    [Tooltip("Ako je uključeno, balon ne smije biti veći od ćelije.")]
     [SerializeField] private bool clampToCellSize = true;
 
-    [Tooltip("Koliko posto ćelije maksimalno smije zauzeti balon ako je clampToCellSize uključen.")]
     [Range(0.1f, 1.5f)]
     [SerializeField] private float maxCellFill = 0.85f;
 
     [Header("Bubble Placement")]
-    [Tooltip("Visina balona iznad poda/grida.")]
     [SerializeField] private float verticalOffset = 0.18f;
-
-    [Tooltip("Ako je uključeno, balon se pozicionira točno na centar ćelije.")]
     [SerializeField] private bool snapToCellCenter = true;
 
     [Header("Pulse / Titranje")]
-    [Tooltip("Osnovna amplituda titranja. Veća buka dodatno pojača titranje.")]
-    [SerializeField] private float pulseAmplitude = 0.06f;
-
-    [Tooltip("Dodatna amplituda titranja kod najveće buke.")]
-    [SerializeField] private float pulseAmplitudeAtMaxNoise = 0.14f;
-
-    [Tooltip("Brzina titranja kod najniže buke.")]
+    [SerializeField] private bool pulseOnlyWhileCellIsActive = true;
+    [SerializeField] private float activePulseTimeoutSeconds = 1.25f;
+    [SerializeField] private float pulseAmplitude = 0.04f;
+    [SerializeField] private float pulseAmplitudeAtMaxNoise = 0.10f;
     [SerializeField] private float minPulseSpeed = 1.2f;
-
-    [Tooltip("Brzina titranja kod najveće buke.")]
     [SerializeField] private float maxPulseSpeed = 4.5f;
-
-    [Tooltip("Ako je uključeno, svaki balon ima malo drugačiju fazu titranja da scena ne izgleda umjetno sinkronizirano.")]
     [SerializeField] private bool randomizePulsePhasePerCell = true;
 
     [Header("Color Mapping")]
-    [Tooltip("Ako je uključeno, koristi se default gradijent: plavo -> magenta -> crveno.")]
     [SerializeField] private bool useDefaultNoiseGradient = true;
-
     [SerializeField] private Gradient noiseGradient;
-
-    [Tooltip("Intenzitet emisije boje. 0 znači bez emisije.")]
     [SerializeField] private float emissionIntensity = 1.2f;
 
-    [Tooltip("Alfa boje. Radi samo ako materijal/shader podržava transparentnost.")]
     [Range(0f, 1f)]
     [SerializeField] private float bubbleAlpha = 0.75f;
 
     [Header("Lifetime")]
-    [Tooltip("Ako je uključeno, jednom stvoreni baloni ostaju i nakon što robot ode iz ćelije.")]
-    [SerializeField] private bool keepVisitedCellsVisible = true;
-
-    [Tooltip("Ako keepVisitedCellsVisible nije uključen, balon nestaje kad je stariji od ovoliko sekundi.")]
+    [SerializeField] private bool keepVisitedCellsVisible = false;
     [SerializeField] private float removeAfterSeconds = 60f;
 
-    [Header("Physics / Layers")]
+    [Header("Hover / Physics")]
+    [SerializeField] private bool removeBubbleColliders = false;
+    [SerializeField] private bool bubbleColliderIsTrigger = true;
     [SerializeField] private string visualizationLayerName = "Visualization";
-
-    [Tooltip("Ako je uključeno, baloni nemaju collidere i neće smetati robotu/playeru.")]
-    [SerializeField] private bool removeBubbleColliders = true;
 
     [Header("Debug")]
     [SerializeField] private bool logAddedSamples = false;
+    [SerializeField] private bool logRemovedBubbles = false;
 
     private readonly Dictionary<Vector2Int, NoiseCellData> cells = new Dictionary<Vector2Int, NoiseCellData>();
+
+    public float MinNoiseDb => minNoiseDb;
+    public float MaxNoiseDb => maxNoiseDb;
 
     private void Reset()
     {
         noiseGradient = CreateDefaultNoiseGradient();
+        keepVisitedCellsVisible = false;
+        removeAfterSeconds = 60f;
+        removeBubbleColliders = false;
+        bubbleColliderIsTrigger = true;
     }
 
     private void Awake()
@@ -154,6 +134,7 @@ public class NoiseBubbleGrid : MonoBehaviour
 
         historySeconds = Mathf.Max(1f, historySeconds);
         removeAfterSeconds = Mathf.Max(1f, removeAfterSeconds);
+        activePulseTimeoutSeconds = Mathf.Max(0.05f, activePulseTimeoutSeconds);
 
         minBubbleDiameter = Mathf.Max(0.01f, minBubbleDiameter);
         maxBubbleDiameter = Mathf.Max(minBubbleDiameter, maxBubbleDiameter);
@@ -216,7 +197,7 @@ public class NoiseBubbleGrid : MonoBehaviour
         {
             Debug.Log(
                 $"NoiseBubbleGrid sample | cell=({gridX},{gridY}) " +
-                $"noise={noiseDb:F1} dBA display={displayNoise:F1} dBA"
+                $"world={worldPosition} | noise={noiseDb:F1} dBA | display={displayNoise:F1} dBA"
             );
         }
     }
@@ -230,6 +211,23 @@ public class NoiseBubbleGrid : MonoBehaviour
         }
 
         cells.Clear();
+
+        if (bubblesParent != null)
+        {
+            List<GameObject> oldChildren = new List<GameObject>();
+
+            foreach (Transform child in bubblesParent)
+            {
+                if (child != null && child.name.StartsWith("NoiseBubble_"))
+                    oldChildren.Add(child.gameObject);
+            }
+
+            for (int i = 0; i < oldChildren.Count; i++)
+            {
+                if (oldChildren[i] != null)
+                    Destroy(oldChildren[i]);
+            }
+        }
     }
 
     public void SetVisible(bool visible)
@@ -238,18 +236,57 @@ public class NoiseBubbleGrid : MonoBehaviour
             bubblesParent.gameObject.SetActive(visible);
     }
 
+    public bool TryGetClosestBubbleHoverInfo(Vector3 worldPoint, out NoiseBubbleHoverInfo info)
+    {
+        info = default;
+
+        if (cells.Count == 0)
+            return false;
+
+        NoiseCellData closest = null;
+        float bestDistanceSqr = float.MaxValue;
+
+        foreach (KeyValuePair<Vector2Int, NoiseCellData> pair in cells)
+        {
+            NoiseCellData cell = pair.Value;
+
+            if (cell == null || cell.bubbleObject == null)
+                continue;
+
+            Vector3 center = cell.bubbleObject.transform.position;
+            float radius = Mathf.Max(0.01f, cell.bubbleObject.transform.lossyScale.x * 0.5f);
+            float distanceSqr = (center - worldPoint).sqrMagnitude;
+
+            if (distanceSqr <= radius * radius * 4f && distanceSqr < bestDistanceSqr)
+            {
+                bestDistanceSqr = distanceSqr;
+                closest = cell;
+            }
+        }
+
+        if (closest == null)
+            return false;
+
+        info = new NoiseBubbleHoverInfo
+        {
+            worldPoint = worldPoint,
+            bubbleCenter = closest.bubbleObject.transform.position,
+            noiseDb = closest.latestNoiseDb,
+            ageSeconds = Mathf.Max(0f, Time.time - closest.lastUpdateTime),
+            cell = closest.cell
+        };
+
+        return true;
+    }
+
     private NoiseCellData CreateCellData(Vector2Int cellKey, int gridX, int gridY, Vector3 originalWorldPosition)
     {
         Vector3 position;
 
         if (snapToCellCenter)
-        {
             position = heatmap.GetCellCenterWorld(gridX, gridY);
-        }
         else
-        {
             position = originalWorldPosition;
-        }
 
         position.y += verticalOffset;
 
@@ -261,11 +298,21 @@ public class NoiseBubbleGrid : MonoBehaviour
 
         ApplyVisualizationLayerRecursively(bubble);
 
+        SphereCollider sphereCollider = bubble.GetComponent<SphereCollider>();
+
         if (removeBubbleColliders)
         {
-            Collider col = bubble.GetComponent<Collider>();
-            if (col != null)
-                Destroy(col);
+            if (sphereCollider != null)
+                Destroy(sphereCollider);
+
+            sphereCollider = null;
+        }
+        else
+        {
+            if (sphereCollider == null)
+                sphereCollider = bubble.AddComponent<SphereCollider>();
+
+            sphereCollider.isTrigger = bubbleColliderIsTrigger;
         }
 
         Renderer renderer = bubble.GetComponent<Renderer>();
@@ -278,9 +325,11 @@ public class NoiseBubbleGrid : MonoBehaviour
             bubbleObject = bubble,
             bubbleRenderer = renderer,
             bubbleMaterial = mat,
+            bubbleCollider = sphereCollider,
             latestNoiseDb = minNoiseDb,
             targetDiameter = minBubbleDiameter,
             currentDiameter = minBubbleDiameter,
+            stableDisplayDiameter = minBubbleDiameter,
             lastUpdateTime = Time.time
         };
     }
@@ -294,17 +343,9 @@ public class NoiseBubbleGrid : MonoBehaviour
             if (cellData == null || cellData.bubbleObject == null)
                 continue;
 
-            float normalized = GetNormalizedNoise(cellData.latestNoiseDb);
-
-            float pulseSpeed = Mathf.Lerp(minPulseSpeed, maxPulseSpeed, normalized);
-            float amplitude = Mathf.Lerp(pulseAmplitude, pulseAmplitudeAtMaxNoise, normalized);
-
-            float phase = randomizePulsePhasePerCell
-                ? GetStableCellPhase(cellData.cell)
-                : 0f;
-
-            float pulse =
-                1f + Mathf.Sin((Time.time + phase) * pulseSpeed * Mathf.PI * 2f) * amplitude;
+            bool isActiveCell =
+                !pulseOnlyWhileCellIsActive ||
+                Time.time - cellData.lastUpdateTime <= activePulseTimeoutSeconds;
 
             cellData.currentDiameter = Mathf.Lerp(
                 cellData.currentDiameter,
@@ -312,8 +353,31 @@ public class NoiseBubbleGrid : MonoBehaviour
                 Time.deltaTime * sizeSmoothSpeed
             );
 
-            float finalDiameter = Mathf.Max(0.01f, cellData.currentDiameter * pulse);
-            cellData.bubbleObject.transform.localScale = Vector3.one * finalDiameter;
+            float displayDiameter = cellData.currentDiameter;
+
+            if (isActiveCell)
+            {
+                float normalized = GetNormalizedNoise(cellData.latestNoiseDb);
+
+                float pulseSpeed = Mathf.Lerp(minPulseSpeed, maxPulseSpeed, normalized);
+                float amplitude = Mathf.Lerp(pulseAmplitude, pulseAmplitudeAtMaxNoise, normalized);
+
+                float phase = randomizePulsePhasePerCell
+                    ? GetStableCellPhase(cellData.cell)
+                    : 0f;
+
+                float pulse =
+                    1f + Mathf.Sin((Time.time + phase) * pulseSpeed * Mathf.PI * 2f) * amplitude;
+
+                displayDiameter = Mathf.Max(0.01f, cellData.currentDiameter * pulse);
+                cellData.stableDisplayDiameter = cellData.currentDiameter;
+            }
+            else
+            {
+                displayDiameter = Mathf.Max(0.01f, cellData.stableDisplayDiameter);
+            }
+
+            cellData.bubbleObject.transform.localScale = Vector3.one * displayDiameter;
         }
     }
 
@@ -402,9 +466,7 @@ public class NoiseBubbleGrid : MonoBehaviour
     private void RemoveOldSamplesFromCellHistories()
     {
         foreach (KeyValuePair<Vector2Int, NoiseCellData> pair in cells)
-        {
             RemoveOldSamples(pair.Value);
-        }
     }
 
     private void RemoveOldSamples(NoiseCellData cellData)
@@ -454,6 +516,9 @@ public class NoiseBubbleGrid : MonoBehaviour
                     Destroy(cellData.bubbleObject);
 
                 cells.Remove(key);
+
+                if (logRemovedBubbles)
+                    Debug.Log($"NoiseBubbleGrid removed expired bubble at cell {key}");
             }
         }
     }
