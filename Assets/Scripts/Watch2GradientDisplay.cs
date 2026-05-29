@@ -9,7 +9,9 @@ public class Watch2GradientDisplay : MonoBehaviour
     {
         None,
         Temperature,
-        Noise
+        Noise,
+        Humidity,
+        CO2
     }
 
     [Header("Output")]
@@ -23,11 +25,47 @@ public class Watch2GradientDisplay : MonoBehaviour
     [SerializeField] private SwitcherSensor switcherSensor;
 
     [Header("Data Sources")]
-    [Tooltip("Grid objekt koji ima ShaderGridHeatmap.")]
+    [Tooltip("Grid objekt koji ima ShaderGridHeatmap za temperaturu.")]
     [SerializeField] private ShaderGridHeatmap temperatureHeatmap;
 
-    [Tooltip("NoiseTrailManager objekt koji ima SpatioTemporalNoiseTrail.")]
-    [SerializeField] private SpatioTemporalNoiseTrail noiseTrail;
+    [Tooltip("NoiseBubbleGridManager objekt koji ima NoiseBubbleGrid skriptu.")]
+    [SerializeField] private NoiseBubbleGrid noiseBubbleGrid;
+
+    [Tooltip("Objekt koji sada koristiš za vlagu/humidity trail.")]
+    [SerializeField] private SpatioTemporalNoiseTrail humidityTrail;
+
+    [Tooltip("CO2Grid objekt koji ima CO2GridLineGraph.")]
+    [SerializeField] private CO2GridLineGraph co2GridLineGraph;
+
+    [Header("Fallback Noise Range")]
+    [Tooltip("Koristi se ako NoiseBubbleGrid nije spojen.")]
+    [SerializeField] private float fallbackMinNoiseDb = 35f;
+
+    [Tooltip("Koristi se ako NoiseBubbleGrid nije spojen.")]
+    [SerializeField] private float fallbackMaxNoiseDb = 82f;
+
+    [Header("Noise Colors")]
+    [SerializeField] private Color noiseLowColor = new Color(0.10f, 0.35f, 1f, 1f);
+    [SerializeField] private Color noiseMiddleColor = new Color(0.80f, 0.00f, 1f, 1f);
+    [SerializeField] private Color noiseHighColor = new Color(1.00f, 0.05f, 0f, 1f);
+
+    [Header("Humidity Range")]
+    [SerializeField] private float minHumidityPercent = 35f;
+    [SerializeField] private float maxHumidityPercent = 85f;
+
+    [Header("Humidity Colors")]
+    [SerializeField] private Color humidityLowColor = new Color(0.95f, 0.80f, 0.20f, 1f);
+    [SerializeField] private Color humidityMiddleColor = new Color(0.15f, 0.70f, 1.00f, 1f);
+    [SerializeField] private Color humidityHighColor = new Color(0.05f, 0.15f, 0.95f, 1f);
+
+    [Header("CO2 Range")]
+    [SerializeField] private float minCO2Ppm = 400f;
+    [SerializeField] private float maxCO2Ppm = 2000f;
+
+    [Header("CO2 Colors")]
+    [SerializeField] private Color co2LowColor = new Color(0.10f, 0.75f, 0.25f, 1f);
+    [SerializeField] private Color co2MiddleColor = new Color(1.00f, 0.70f, 0.05f, 1f);
+    [SerializeField] private Color co2HighColor = new Color(0.90f, 0.05f, 0.02f, 1f);
 
     [Header("Texture Settings")]
     [SerializeField] private int textureWidth = 256;
@@ -36,9 +74,13 @@ public class Watch2GradientDisplay : MonoBehaviour
     [Header("Label Formatting")]
     [SerializeField] private int temperatureDecimals = 1;
     [SerializeField] private int noiseDecimals = 1;
+    [SerializeField] private int humidityDecimals = 0;
+    [SerializeField] private int co2Decimals = 0;
 
     [SerializeField] private string temperatureTitle = "Temperature/°C";
     [SerializeField] private string noiseTitle = "Noise/dB";
+    [SerializeField] private string humidityTitle = "Humidity/%";
+    [SerializeField] private string co2Title = "CO2/ppm";
 
     [Header("Behaviour")]
     [SerializeField] private bool hideWhenNoSensorActive = true;
@@ -47,7 +89,7 @@ public class Watch2GradientDisplay : MonoBehaviour
 
     [Header("Editor Preview")]
     [SerializeField] private bool showPreviewInEditor = true;
-    [SerializeField] private bool previewTemperature = true;
+    [SerializeField] private GradientMode editorPreviewMode = GradientMode.Temperature;
 
     [Header("Debug")]
     [SerializeField] private bool logChanges = false;
@@ -76,6 +118,15 @@ public class Watch2GradientDisplay : MonoBehaviour
         textureWidth = Mathf.Max(8, textureWidth);
         textureHeight = Mathf.Max(2, textureHeight);
 
+        minHumidityPercent = Mathf.Min(minHumidityPercent, maxHumidityPercent - 0.01f);
+        maxHumidityPercent = Mathf.Max(maxHumidityPercent, minHumidityPercent + 0.01f);
+
+        minCO2Ppm = Mathf.Min(minCO2Ppm, maxCO2Ppm - 1f);
+        maxCO2Ppm = Mathf.Max(maxCO2Ppm, minCO2Ppm + 1f);
+
+        fallbackMinNoiseDb = Mathf.Min(fallbackMinNoiseDb, fallbackMaxNoiseDb - 0.01f);
+        fallbackMaxNoiseDb = Mathf.Max(fallbackMaxNoiseDb, fallbackMinNoiseDb + 0.01f);
+
         FindReferencesIfMissing();
         ForceRefresh();
     }
@@ -101,7 +152,7 @@ public class Watch2GradientDisplay : MonoBehaviour
         {
             if (showPreviewInEditor && !Application.isPlaying)
             {
-                mode = previewTemperature ? GradientMode.Temperature : GradientMode.Noise;
+                mode = editorPreviewMode;
             }
             else if (hideWhenNoSensorActive)
             {
@@ -121,11 +172,17 @@ public class Watch2GradientDisplay : MonoBehaviour
         {
             UpdateNoiseGradient();
         }
+        else if (mode == GradientMode.Humidity)
+        {
+            UpdateHumidityGradient();
+        }
+        else if (mode == GradientMode.CO2)
+        {
+            UpdateCO2Gradient();
+        }
 
         if (logChanges && mode != lastMode)
-        {
             Debug.Log("Watch2 gradient mode changed to: " + mode);
-        }
 
         lastMode = mode;
     }
@@ -161,6 +218,12 @@ public class Watch2GradientDisplay : MonoBehaviour
 
         if (IsIconGreen(switcherSensor.megaphoneIcon))
             return GradientMode.Noise;
+
+        if (IsIconGreen(switcherSensor.humidityIcon))
+            return GradientMode.Humidity;
+
+        if (IsIconGreen(switcherSensor.co2Icon))
+            return GradientMode.CO2;
 
         return GradientMode.None;
     }
@@ -213,17 +276,14 @@ public class Watch2GradientDisplay : MonoBehaviour
 
     private void UpdateNoiseGradient()
     {
-        if (noiseTrail == null)
-            return;
+        float min = noiseBubbleGrid != null ? noiseBubbleGrid.MinNoiseDb : fallbackMinNoiseDb;
+        float max = noiseBubbleGrid != null ? noiseBubbleGrid.MaxNoiseDb : fallbackMaxNoiseDb;
 
-        float min = noiseTrail.GetMinNoiseDb();
-        float max = noiseTrail.GetMaxNoiseDb();
-
-        Color lowColor = MakeUiColor(noiseTrail.GetColorForNoiseDb(min));
-        Color highColor = MakeUiColor(noiseTrail.GetColorForNoiseDb(max));
+        Color lowColor = GetNoiseColor(min, min, max);
+        Color highColor = GetNoiseColor(max, min, max);
 
         string signature =
-            "NOISE|" +
+            "NOISE_BUBBLE|" +
             min.ToString("F3") + "|" +
             max.ToString("F3") + "|" +
             ColorUtility.ToHtmlStringRGBA(lowColor) + "|" +
@@ -234,7 +294,7 @@ public class Watch2GradientDisplay : MonoBehaviour
             BuildGradientTexture(t =>
             {
                 float value = Mathf.Lerp(min, max, t);
-                return MakeUiColor(noiseTrail.GetColorForNoiseDb(value));
+                return GetNoiseColor(value, min, max);
             });
 
             UpdateTitle(noiseTitle);
@@ -242,6 +302,94 @@ public class Watch2GradientDisplay : MonoBehaviour
 
             lastSignature = signature;
         }
+    }
+
+    private void UpdateHumidityGradient()
+    {
+        float min = minHumidityPercent;
+        float max = maxHumidityPercent;
+
+        Color lowColor = GetHumidityColor(min);
+        Color highColor = GetHumidityColor(max);
+
+        string signature =
+            "HUMIDITY|" +
+            min.ToString("F3") + "|" +
+            max.ToString("F3") + "|" +
+            ColorUtility.ToHtmlStringRGBA(lowColor) + "|" +
+            ColorUtility.ToHtmlStringRGBA(highColor);
+
+        if (signature != lastSignature || lastMode != GradientMode.Humidity)
+        {
+            BuildGradientTexture(t =>
+            {
+                float value = Mathf.Lerp(min, max, t);
+                return GetHumidityColor(value);
+            });
+
+            UpdateTitle(humidityTitle);
+            UpdateValueLabels(min, max, humidityDecimals);
+
+            lastSignature = signature;
+        }
+    }
+
+    private void UpdateCO2Gradient()
+    {
+        float min = minCO2Ppm;
+        float max = maxCO2Ppm;
+
+        Color lowColor = GetCO2Color(min);
+        Color highColor = GetCO2Color(max);
+
+        string signature =
+            "CO2|" +
+            min.ToString("F3") + "|" +
+            max.ToString("F3") + "|" +
+            ColorUtility.ToHtmlStringRGBA(lowColor) + "|" +
+            ColorUtility.ToHtmlStringRGBA(highColor);
+
+        if (signature != lastSignature || lastMode != GradientMode.CO2)
+        {
+            BuildGradientTexture(t =>
+            {
+                float value = Mathf.Lerp(min, max, t);
+                return GetCO2Color(value);
+            });
+
+            UpdateTitle(co2Title);
+            UpdateValueLabels(min, max, co2Decimals);
+
+            lastSignature = signature;
+        }
+    }
+
+    private Color GetNoiseColor(float value, float min, float max)
+    {
+        float t = Mathf.InverseLerp(min, max, value);
+        return MakeUiColor(ThreeColorGradient(noiseLowColor, noiseMiddleColor, noiseHighColor, t));
+    }
+
+    private Color GetHumidityColor(float humidityPercent)
+    {
+        float t = Mathf.InverseLerp(minHumidityPercent, maxHumidityPercent, humidityPercent);
+        return MakeUiColor(ThreeColorGradient(humidityLowColor, humidityMiddleColor, humidityHighColor, t));
+    }
+
+    private Color GetCO2Color(float co2Ppm)
+    {
+        float t = Mathf.InverseLerp(minCO2Ppm, maxCO2Ppm, co2Ppm);
+        return MakeUiColor(ThreeColorGradient(co2LowColor, co2MiddleColor, co2HighColor, t));
+    }
+
+    private Color ThreeColorGradient(Color low, Color middle, Color high, float t)
+    {
+        t = Mathf.Clamp01(t);
+
+        if (t <= 0.5f)
+            return Color.Lerp(low, middle, t / 0.5f);
+
+        return Color.Lerp(middle, high, (t - 0.5f) / 0.5f);
     }
 
     private void UpdateTitle(string text)
@@ -285,9 +433,7 @@ public class Watch2GradientDisplay : MonoBehaviour
             color.a = 1f;
 
             for (int y = 0; y < textureHeight; y++)
-            {
                 gradientTexture.SetPixel(x, y, color);
-            }
         }
 
         gradientTexture.Apply(false);
@@ -328,6 +474,7 @@ public class Watch2GradientDisplay : MonoBehaviour
         if (gradientImage == null)
         {
             Transform t = transform.Find("Gradient");
+
             if (t == null)
                 t = FindChildDeep(transform, "Gradient");
 

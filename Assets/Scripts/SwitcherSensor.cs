@@ -3,7 +3,7 @@ using UnityEngine.UI;
 
 public class SwitcherSensor : MonoBehaviour
 {
-    private enum SensorMode
+    public enum SensorMode
     {
         None,
         Temperature,
@@ -25,22 +25,40 @@ public class SwitcherSensor : MonoBehaviour
     public GameObject AirQualityTracker;
 
     [Header("Default")]
-    [Tooltip("Ako nijedna ikona nije zelena, ovo je default prikaz.")]
     [SerializeField] private SensorMode defaultModeWhenNoIconIsGreen = SensorMode.Temperature;
 
     [Header("Behaviour")]
-    [Tooltip("Ovo mora ostati true. Skripta ne gasi GameObjecte nego samo renderere/collidere da se stanje vizualizacija pamti.")]
     [SerializeField] private bool keepObjectsActiveAndOnlyHideVisuals = true;
-
-    [Tooltip("Ako je true, svaki frame ponovno forsira vidljivost. Ovo je bitno jer se baloni/kocke stvaraju runtime.")]
     [SerializeField] private bool enforceVisibilityEveryFrame = true;
-
     [SerializeField] private bool logModeChanges = true;
 
     private const string SpaceTimeColumnRootPrefix = "SpaceTimeColumnRoot";
+    private const string CO2LineGraphRootPrefix = "CO2LineGraphRoot";
 
     private SensorMode currentMode = SensorMode.None;
     private SensorMode lastAppliedMode = SensorMode.None;
+
+    public SensorMode CurrentMode => currentMode;
+
+    public bool IsTemperatureModeActive()
+    {
+        return currentMode == SensorMode.Temperature;
+    }
+
+    public bool IsNoiseModeActive()
+    {
+        return currentMode == SensorMode.Noise;
+    }
+
+    public bool IsHumidityModeActive()
+    {
+        return currentMode == SensorMode.Humidity;
+    }
+
+    public bool IsAirQualityModeActive()
+    {
+        return currentMode == SensorMode.AirQuality;
+    }
 
     private void Start()
     {
@@ -53,7 +71,10 @@ public class SwitcherSensor : MonoBehaviour
     private void Update()
     {
         currentMode = GetCurrentMode();
+    }
 
+    private void LateUpdate()
+    {
         if (enforceVisibilityEveryFrame)
         {
             ApplyMode(currentMode, true);
@@ -96,7 +117,18 @@ public class SwitcherSensor : MonoBehaviour
         SetTrackerVisible(HumidityTracker, showHumidity);
         SetTrackerVisible(AirQualityTracker, showAirQuality);
 
-        SetSpaceTimeColumnRootsVisible(showTemperature);
+        SetRuntimeRootsVisible(SpaceTimeColumnRootPrefix, showTemperature);
+        SetRuntimeRootsVisible(CO2LineGraphRootPrefix, showAirQuality);
+
+        SetTrackerInteraction(TemperatureTracker, showTemperature);
+        SetTrackerInteraction(NoiseTracker, showNoise);
+        SetTrackerInteraction(HumidityTracker, showHumidity);
+        SetTrackerInteraction(AirQualityTracker, showAirQuality);
+
+        SetTrackerVisualizationState(TemperatureTracker, showTemperature);
+        SetTrackerVisualizationState(NoiseTracker, showNoise);
+        SetTrackerVisualizationState(HumidityTracker, showHumidity);
+        SetTrackerVisualizationState(AirQualityTracker, showAirQuality);
 
         if (logModeChanges && mode != lastAppliedMode)
             Debug.Log($"SwitcherSensor mode changed to: {mode}");
@@ -140,13 +172,37 @@ public class SwitcherSensor : MonoBehaviour
         SetRenderersAndCollidersVisible(tracker, visible);
     }
 
-    private void SetSpaceTimeColumnRootsVisible(bool visible)
+    private void SetTrackerInteraction(GameObject tracker, bool interactionEnabled)
+    {
+        if (tracker == null)
+            return;
+
+        tracker.BroadcastMessage(
+            "SetInteractionEnabled",
+            interactionEnabled,
+            SendMessageOptions.DontRequireReceiver
+        );
+    }
+
+    private void SetTrackerVisualizationState(GameObject tracker, bool visible)
+    {
+        if (tracker == null)
+            return;
+
+        tracker.BroadcastMessage(
+            "SetVisualizationVisible",
+            visible,
+            SendMessageOptions.DontRequireReceiver
+        );
+    }
+
+    private void SetRuntimeRootsVisible(string rootPrefix, bool visible)
     {
         Transform[] allTransforms = FindObjectsOfType<Transform>(true);
 
         foreach (Transform t in allTransforms)
         {
-            if (t != null && t.name.StartsWith(SpaceTimeColumnRootPrefix))
+            if (t != null && t.name.StartsWith(rootPrefix))
             {
                 SetRenderersAndCollidersVisible(t.gameObject, visible);
             }

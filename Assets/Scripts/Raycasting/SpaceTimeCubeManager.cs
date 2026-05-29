@@ -5,6 +5,13 @@ using UnityEngine.InputSystem;
 
 public class SpaceTimeCubeManager : MonoBehaviour
 {
+    private bool interactionEnabled = true;
+
+    public void SetInteractionEnabled(bool enabled)
+    {
+        interactionEnabled = enabled;
+    }
+
     [Header("References")]
     [SerializeField] private ShaderGridHeatmap heatmap;
     [SerializeField] private GridCellCursor gridCellCursor;
@@ -88,7 +95,7 @@ public class SpaceTimeCubeManager : MonoBehaviour
 
     private void Update()
     {
-        if (placeColumnAction != null && placeColumnAction.action.WasPressedThisFrame())
+        if (interactionEnabled && placeColumnAction != null && placeColumnAction.action.WasPressedThisFrame())
         {
             TryPlaceAtCursor();
         }

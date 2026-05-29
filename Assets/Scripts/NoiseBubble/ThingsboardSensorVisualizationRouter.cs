@@ -18,18 +18,12 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
     [SerializeField] private float pollIntervalSeconds = 1f;
 
     [Header("Robot Driving")]
-    [Tooltip("Ako je uključeno, ova skripta pomiče robota na temelju x/y iz ThingsBoarda.")]
     [SerializeField] private bool driveRobotFromThingsBoardXY = true;
-
-    [Tooltip("Povuci Go2SimpleController s robota. Ovo je preporučeni način.")]
     [SerializeField] private Go2SimpleController go2Controller;
-
-    [Tooltip("Fallback ako nema Go2SimpleController. Tada se direktno pomiče transform.")]
     [SerializeField] private Transform fallbackRobotTransform;
-
     [SerializeField] private float minimumTargetChangeDistance = 0.05f;
 
-    [Header("Position Mapping - mora biti isto kao prije na TurtleThingsBoardFollower")]
+    [Header("Position Mapping")]
     [SerializeField] private float rosMinX = -0.5f;
     [SerializeField] private float rosMaxX = 0.5f;
     [SerializeField] private float rosMinY = -0.5f;
@@ -58,6 +52,10 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
     [Header("Humidity Visualization")]
     [SerializeField] private SpatioTemporalNoiseTrail humidityTrail;
     [SerializeField] private bool routeHumidityToTrail = true;
+
+    [Header("CO2 / Air Quality Visualization")]
+    [SerializeField] private CO2GridLineGraph co2GridLineGraph;
+    [SerializeField] private bool routeCO2ToGridLineGraph = true;
 
     [Header("Duplicate Protection")]
     [SerializeField] private bool skipDuplicateTelemetryTimestamp = true;
@@ -151,7 +149,7 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
 
     private IEnumerator GetLatestTelemetry()
     {
-        string keys = "x,y,temperature,noise,humidity";
+        string keys = "x,y,temperature,noise,humidity,co2";
         string url = $"{baseUrl}/api/plugins/telemetry/DEVICE/{deviceId}/values/timeseries?keys={keys}";
 
         using UnityWebRequest request = UnityWebRequest.Get(url);
@@ -173,10 +171,14 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
         bool hasTemperature = TryExtractLatestFloat(rawJson, "temperature", out float temperature, out long temperatureTs);
         bool hasNoise = TryExtractLatestFloat(rawJson, "noise", out float noiseDb, out long noiseTs);
         bool hasHumidity = TryExtractLatestFloat(rawJson, "humidity", out float humidityPercent, out long humidityTs);
+        bool hasCO2 = TryExtractLatestFloat(rawJson, "co2", out float co2Ppm, out long co2Ts);
 
         long newestTs = Math.Max(
             Math.Max(xTs, yTs),
-            Math.Max(temperatureTs, Math.Max(noiseTs, humidityTs))
+            Math.Max(
+                Math.Max(temperatureTs, noiseTs),
+                Math.Max(humidityTs, co2Ts)
+            )
         );
 
         if (skipDuplicateTelemetryTimestamp && newestTs > 0 && newestTs == lastProcessedTimestamp)
@@ -185,11 +187,11 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
         if (newestTs > 0)
             lastProcessedTimestamp = newestTs;
 
-        if (logMissingValues && (!hasX || !hasY || !hasTemperature || !hasNoise || !hasHumidity))
+        if (logMissingValues && (!hasX || !hasY || !hasTemperature || !hasNoise || !hasHumidity || !hasCO2))
         {
             Debug.LogWarning(
                 "ThingsBoardSensorVisualizationRouter: missing value. " +
-                $"hasX={hasX}, hasY={hasY}, hasTemperature={hasTemperature}, hasNoise={hasNoise}, hasHumidity={hasHumidity}\n" +
+                $"hasX={hasX}, hasY={hasY}, hasTemperature={hasTemperature}, hasNoise={hasNoise}, hasHumidity={hasHumidity}, hasCO2={hasCO2}\n" +
                 $"Raw JSON: {rawJson}"
             );
         }
@@ -229,13 +231,22 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
                 Debug.LogWarning("ThingsBoardSensorVisualizationRouter: humidityTrail nije postavljen.");
         }
 
+        if (routeCO2ToGridLineGraph && hasCO2)
+        {
+            if (co2GridLineGraph != null)
+                co2GridLineGraph.AddCO2Sample(worldPosition, co2Ppm);
+            else
+                Debug.LogWarning("ThingsBoardSensorVisualizationRouter: co2GridLineGraph nije postavljen.");
+        }
+
         if (logTelemetry)
         {
             Debug.Log(
                 $"[Sensor Router] ros=({rosX:F2},{rosY:F2}) | unity={worldPosition} | " +
                 $"temperature={(hasTemperature ? temperature.ToString("F2", CultureInfo.InvariantCulture) : "N/A")} °C | " +
                 $"noise={(hasNoise ? noiseDb.ToString("F2", CultureInfo.InvariantCulture) : "N/A")} dBA | " +
-                $"humidity={(hasHumidity ? humidityPercent.ToString("F2", CultureInfo.InvariantCulture) : "N/A")} %"
+                $"humidity={(hasHumidity ? humidityPercent.ToString("F2", CultureInfo.InvariantCulture) : "N/A")} % | " +
+                $"co2={(hasCO2 ? co2Ppm.ToString("F0", CultureInfo.InvariantCulture) : "N/A")} ppm"
             );
         }
     }

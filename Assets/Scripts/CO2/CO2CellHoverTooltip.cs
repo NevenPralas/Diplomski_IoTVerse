@@ -1,9 +1,9 @@
-﻿using UnityEngine;
+using UnityEngine;
 
-public class NoiseBubbleHoverTooltip : MonoBehaviour
+public class CO2CellHoverTooltip : MonoBehaviour
 {
     [Header("References")]
-    [SerializeField] private NoiseBubbleGrid noiseBubbleGrid;
+    [SerializeField] private CO2GridLineGraph co2Grid;
     [SerializeField] private SwitcherSensor switcherSensor;
 
     [Tooltip("Transform iz kojeg ide bijeli laser/ray.")]
@@ -11,7 +11,10 @@ public class NoiseBubbleHoverTooltip : MonoBehaviour
 
     [Header("Raycast")]
     [SerializeField] private float rayDistance = 50f;
+
+    [Tooltip("Layer na kojem je CO2Grid, npr. CO2Grid ili HeatmapGrid.")]
     [SerializeField] private LayerMask hoverLayerMask = ~0;
+
     [SerializeField] private bool debugRay = false;
 
     [Header("Tooltip Visual")]
@@ -34,6 +37,7 @@ public class NoiseBubbleHoverTooltip : MonoBehaviour
     private Renderer markerRenderer;
 
     private bool interactionEnabled = true;
+    private bool visualizationVisible = true;
 
     public void SetInteractionEnabled(bool enabled)
     {
@@ -45,7 +49,9 @@ public class NoiseBubbleHoverTooltip : MonoBehaviour
 
     public void SetVisualizationVisible(bool visible)
     {
-        if (!visible)
+        visualizationVisible = visible;
+
+        if (!visualizationVisible)
             HideHover();
     }
 
@@ -72,13 +78,13 @@ public class NoiseBubbleHoverTooltip : MonoBehaviour
 
     private bool ShouldAllowHover()
     {
-        if (!interactionEnabled)
+        if (!interactionEnabled || !visualizationVisible)
             return false;
 
-        if (switcherSensor != null && !switcherSensor.IsNoiseModeActive())
+        if (switcherSensor != null && !switcherSensor.IsAirQualityModeActive())
             return false;
 
-        if (noiseBubbleGrid == null || rayOrigin == null)
+        if (co2Grid == null || rayOrigin == null)
             return false;
 
         return true;
@@ -90,7 +96,7 @@ public class NoiseBubbleHoverTooltip : MonoBehaviour
         Vector3 direction = rayOrigin.forward.normalized;
 
         if (debugRay)
-            Debug.DrawRay(origin, direction * rayDistance, Color.white);
+            Debug.DrawRay(origin, direction * rayDistance, Color.green);
 
         bool hasHit = Physics.Raycast(
             origin,
@@ -107,36 +113,48 @@ public class NoiseBubbleHoverTooltip : MonoBehaviour
             return;
         }
 
-        NoiseBubbleGrid hitGrid =
-            hit.collider.GetComponentInParent<NoiseBubbleGrid>();
+        CO2GridLineGraph hitGrid = hit.collider.GetComponentInParent<CO2GridLineGraph>();
 
-        if (hitGrid == null || hitGrid != noiseBubbleGrid)
+        if (hitGrid == null || hitGrid != co2Grid)
         {
             HideHover();
             return;
         }
 
-        if (!noiseBubbleGrid.TryGetClosestBubbleHoverInfo(hit.point, out NoiseBubbleGrid.NoiseBubbleHoverInfo info))
+        if (!co2Grid.TryGetCellIndex(hit.point, out int gridX, out int gridY))
         {
             HideHover();
             return;
         }
 
-        ShowHover(info);
+        if (!co2Grid.TryGetDisplayedCO2ForCell(gridX, gridY, out float displayedCO2))
+        {
+            ShowNoData(hit.point, gridX, gridY);
+            return;
+        }
+
+        Vector3 cellCenter = co2Grid.GetCellCenterWorld(gridX, gridY);
+
+        tooltipText.text = $"Average CO2: {displayedCO2:F0} ppm";
+        ShowHover(cellCenter);
     }
 
-    private void ShowHover(NoiseBubbleGrid.NoiseBubbleHoverInfo info)
+    private void ShowNoData(Vector3 hitPoint, int gridX, int gridY)
+    {
+        tooltipText.text = $"CO2 ({gridX},{gridY}): no data";
+        ShowHover(hitPoint);
+    }
+
+    private void ShowHover(Vector3 worldPoint)
     {
         if (tooltipObject == null || tooltipText == null)
             return;
-
-        tooltipText.text = $"Noise: {info.noiseDb:F1} dBA";
 
         Vector3 right = Camera.main != null ? Camera.main.transform.right : Vector3.right;
         Vector3 up = Vector3.up;
 
         tooltipObject.transform.position =
-            info.bubbleCenter +
+            worldPoint +
             right * tooltipOffsetRight +
             up * tooltipOffsetUp;
 
@@ -145,7 +163,7 @@ public class NoiseBubbleHoverTooltip : MonoBehaviour
 
         if (showMarker && markerObject != null)
         {
-            markerObject.transform.position = info.bubbleCenter;
+            markerObject.transform.position = worldPoint + Vector3.up * 0.025f;
             markerObject.transform.localScale = Vector3.one * markerRadius;
 
             if (!markerObject.activeSelf)
@@ -168,7 +186,7 @@ public class NoiseBubbleHoverTooltip : MonoBehaviour
 
     private void CreateTooltip()
     {
-        tooltipObject = new GameObject("NoiseBubbleHoverTooltip");
+        tooltipObject = new GameObject("CO2CellHoverTooltip");
         tooltipObject.transform.SetParent(transform, true);
 
         tooltipText = tooltipObject.AddComponent<TextMesh>();
@@ -197,7 +215,7 @@ public class NoiseBubbleHoverTooltip : MonoBehaviour
             return;
 
         markerObject = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-        markerObject.name = "NoiseBubbleHoverMarker";
+        markerObject.name = "CO2CellHoverMarker";
         markerObject.transform.SetParent(transform, true);
 
         Collider col = markerObject.GetComponent<Collider>();
@@ -208,7 +226,10 @@ public class NoiseBubbleHoverTooltip : MonoBehaviour
 
         if (markerRenderer != null)
         {
-            Shader shader = Shader.Find("Universal Render Pipeline/Lit");
+            Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
+
+            if (shader == null)
+                shader = Shader.Find("Unlit/Color");
 
             if (shader == null)
                 shader = Shader.Find("Standard");
@@ -220,12 +241,6 @@ public class NoiseBubbleHoverTooltip : MonoBehaviour
 
             if (mat.HasProperty("_Color"))
                 mat.SetColor("_Color", markerColor);
-
-            if (mat.HasProperty("_EmissionColor"))
-            {
-                mat.EnableKeyword("_EMISSION");
-                mat.SetColor("_EmissionColor", markerColor * 1.5f);
-            }
 
             markerRenderer.material = mat;
         }
