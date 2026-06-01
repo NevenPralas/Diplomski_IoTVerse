@@ -23,8 +23,6 @@ public class CO2GridLineGraph : MonoBehaviour
     {
         public GameObject root;
         public Vector2Int cell;
-        public float openedRelativeTime;
-        public DateTime openedClockTime;
     }
 
     [Header("Target Renderer")]
@@ -44,12 +42,17 @@ public class CO2GridLineGraph : MonoBehaviour
     [SerializeField] private float baselineGridX = 10f;
     [SerializeField] private float baselineGridY = 10f;
 
-    [Header("CO2 Mapping")]
+    [Header("CO2 Mapping / Gradient")]
     [SerializeField] private float minCO2Ppm = 400f;
     [SerializeField] private float maxCO2Ppm = 2000f;
 
+    [Tooltip("Postavi isto kao CO2 Low Color na Watch gradientu.")]
     [SerializeField] private Color lowCO2Color = new Color(0.10f, 0.75f, 0.25f, 0.85f);
+
+    [Tooltip("Postavi isto kao CO2 Middle Color na Watch gradientu.")]
     [SerializeField] private Color middleCO2Color = new Color(1.00f, 0.70f, 0.05f, 0.85f);
+
+    [Tooltip("Postavi isto kao CO2 High Color na Watch gradientu.")]
     [SerializeField] private Color highCO2Color = new Color(0.90f, 0.05f, 0.02f, 0.85f);
 
     [Range(2, 3)]
@@ -67,11 +70,26 @@ public class CO2GridLineGraph : MonoBehaviour
     [SerializeField] private float averageWindowSeconds = 60f;
 
     [Header("Interaction")]
+    [Tooltip("Novi zasebni CO2 cursor. Ne koristi temperaturni GridCellCursor.")]
+    [SerializeField] private CO2GridCellCursor co2CellCursor;
+
+    [Tooltip("Fallback ako CO2 cursor nije spojen ili nema validnu ćeliju.")]
     [SerializeField] private Transform rayOrigin;
+
     [SerializeField] private InputActionReference openGraphAction;
     [SerializeField] private float raycastDistance = 50f;
+
+    [Tooltip("Layer na kojem je CO2Grid. Nemoj uključiti layer na kojem je CO2CellCursor.")]
     [SerializeField] private LayerMask gridLayerMask = ~0;
+
     [SerializeField] private bool debugRay = false;
+
+    [Header("Graph Opening Rules")]
+    [Tooltip("Ako je false, ne možeš otvoriti graf lijevo/desno/gore/dolje od već otvorenog. Dijagonalno je dopušteno.")]
+    [SerializeField] private bool allowOrthogonalAdjacentGraphs = false;
+
+    [Tooltip("Ako je true, klik na zabranjenu susjednu ćeliju se ignorira. Ako je false, zatvara susjedni graf i otvara novi.")]
+    [SerializeField] private bool ignoreClickWhenAdjacentGraphExists = true;
 
     [Header("Popup Graph")]
     [SerializeField] private Transform graphParent;
@@ -91,9 +109,13 @@ public class CO2GridLineGraph : MonoBehaviour
     [Header("Popup Appearance")]
     [SerializeField] private Color panelColor = new Color(1f, 1f, 1f, 1f);
     [SerializeField] private Color axisColor = new Color(0.06f, 0.06f, 0.06f, 1f);
-    [SerializeField] private Color lineColor = new Color(0.0f, 0.78f, 0.22f, 1f);
     [SerializeField] private Color textColor = new Color(0.04f, 0.04f, 0.04f, 1f);
-    [SerializeField] private Color latestPointColor = new Color(0.0f, 0.55f, 0.16f, 1f);
+
+    [Tooltip("Koristi se samo ako Use Current CO2 Color For Graph Line nije uključen.")]
+    [SerializeField] private Color fallbackLineColor = new Color(0.0f, 0.78f, 0.22f, 1f);
+
+    [Tooltip("Ako je uključeno, linija i trenutna kuglica koriste boju trenutne CO2 vrijednosti iz CO2 gradijenta.")]
+    [SerializeField] private bool useCurrentCO2ColorForGraphLine = true;
 
     [SerializeField] private int labelFontSize = 44;
     [SerializeField] private float labelCharacterSize = 0.018f;
@@ -105,9 +127,6 @@ public class CO2GridLineGraph : MonoBehaviour
     [SerializeField] private float dateLabelCharacterSize = 0.019f;
     [SerializeField] private float dateLabelVerticalOffset = 0.17f;
 
-    [Tooltip("Razmak između timestamp labela. 30 znači labela na početku, pa nova nakon 30s, pa nova nakon 60s.")]
-    [SerializeField] private float timeLabelIntervalSeconds = 30f;
-
     [Header("Refresh")]
     [SerializeField] private float graphRefreshInterval = 1f;
 
@@ -118,6 +137,7 @@ public class CO2GridLineGraph : MonoBehaviour
     [Header("Debug")]
     [SerializeField] private bool logSamples = false;
     [SerializeField] private bool logClicks = false;
+    [SerializeField] private bool logRejectedAdjacentClicks = true;
 
     private Texture2D heatmapTexture;
     private Material runtimeMaterial;
@@ -196,7 +216,6 @@ public class CO2GridLineGraph : MonoBehaviour
         graphLineWidth = Mathf.Max(0.001f, graphLineWidth);
         axisLineWidth = Mathf.Max(0.001f, axisLineWidth);
         graphRefreshInterval = Mathf.Max(0.05f, graphRefreshInterval);
-        timeLabelIntervalSeconds = Mathf.Max(1f, timeLabelIntervalSeconds);
     }
 
     private void Update()
@@ -240,9 +259,7 @@ public class CO2GridLineGraph : MonoBehaviour
         ApplyTexture();
 
         if (logSamples)
-        {
             Debug.Log($"CO2 sample | cell=({gridX},{gridY}) | pos={worldPosition} | co2={co2Ppm:F1} ppm");
-        }
     }
 
     public void ClearCO2()
@@ -271,6 +288,16 @@ public class CO2GridLineGraph : MonoBehaviour
         float z = gridOrigin.z + (gridY + 0.5f) * cellHeight;
 
         return new Vector3(x, transform.position.y, z);
+    }
+
+    public float GetCellWidth()
+    {
+        return cellWidth;
+    }
+
+    public float GetCellHeight()
+    {
+        return cellHeight;
     }
 
     public List<CO2Sample> GetCellHistory(int gridX, int gridY)
@@ -328,6 +355,11 @@ public class CO2GridLineGraph : MonoBehaviour
         return false;
     }
 
+    public Color GetColorForCO2Value(float co2Ppm)
+    {
+        return GetColorForCO2(co2Ppm);
+    }
+
     private void InitializeGridTexture()
     {
         cellWidth = worldWidth / gridSizeX;
@@ -358,9 +390,7 @@ public class CO2GridLineGraph : MonoBehaviour
         for (int x = 0; x < gridSizeX; x++)
         {
             for (int y = 0; y < gridSizeY; y++)
-            {
                 heatmapTexture.SetPixel(x, y, emptyCellColor);
-            }
         }
 
         ApplyTexture();
@@ -458,13 +488,23 @@ public class CO2GridLineGraph : MonoBehaviour
         float t = Mathf.InverseLerp(minCO2Ppm, maxCO2Ppm, co2Ppm);
         t = Mathf.Clamp01(t);
 
+        Color result;
+
         if (gradientColorCount == 2)
-            return Color.Lerp(lowCO2Color, highCO2Color, t);
+        {
+            result = Color.Lerp(lowCO2Color, highCO2Color, t);
+        }
+        else if (t <= 0.5f)
+        {
+            result = Color.Lerp(lowCO2Color, middleCO2Color, t / 0.5f);
+        }
+        else
+        {
+            result = Color.Lerp(middleCO2Color, highCO2Color, (t - 0.5f) / 0.5f);
+        }
 
-        if (t <= 0.5f)
-            return Color.Lerp(lowCO2Color, middleCO2Color, t / 0.5f);
-
-        return Color.Lerp(middleCO2Color, highCO2Color, (t - 0.5f) / 0.5f);
+        result.a = 1f;
+        return result;
     }
 
     private void HandleClick()
@@ -475,10 +515,41 @@ public class CO2GridLineGraph : MonoBehaviour
         if (openGraphAction == null || !openGraphAction.action.WasPressedThisFrame())
             return;
 
+        if (TryGetCellFromCursor(out int cursorGridX, out int cursorGridY))
+        {
+            ToggleOrCreateGraph(cursorGridX, cursorGridY);
+            return;
+        }
+
+        if (!TryGetCellFromRay(out int rayGridX, out int rayGridY))
+            return;
+
+        ToggleOrCreateGraph(rayGridX, rayGridY);
+    }
+
+    private bool TryGetCellFromCursor(out int gridX, out int gridY)
+    {
+        gridX = -1;
+        gridY = -1;
+
+        if (co2CellCursor == null || !co2CellCursor.HasValidCell)
+            return false;
+
+        Vector2Int cell = co2CellCursor.CurrentCell;
+        gridX = cell.x;
+        gridY = cell.y;
+        return true;
+    }
+
+    private bool TryGetCellFromRay(out int gridX, out int gridY)
+    {
+        gridX = -1;
+        gridY = -1;
+
         if (rayOrigin == null)
         {
-            Debug.LogWarning("CO2GridLineGraph: Ray Origin nije postavljen.");
-            return;
+            Debug.LogWarning("CO2GridLineGraph: Ray Origin nije postavljen, a CO2 cursor nema validnu ćeliju.");
+            return false;
         }
 
         Vector3 rayStart = rayOrigin.position;
@@ -487,25 +558,35 @@ public class CO2GridLineGraph : MonoBehaviour
         if (debugRay)
             Debug.DrawRay(rayStart, rayDirection * raycastDistance, Color.green, 0.2f);
 
-        bool hasHit = Physics.Raycast(
+        RaycastHit[] hits = Physics.RaycastAll(
             rayStart,
             rayDirection,
-            out RaycastHit hit,
             raycastDistance,
             gridLayerMask,
             QueryTriggerInteraction.Collide
         );
 
-        if (!hasHit)
-            return;
+        if (hits == null || hits.Length == 0)
+            return false;
 
-        if (!TryGetCellIndex(hit.point, out int gridX, out int gridY))
-            return;
+        Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
 
-        if (logClicks)
-            Debug.Log($"CO2GridLineGraph clicked cell ({gridX},{gridY})");
+        for (int i = 0; i < hits.Length; i++)
+        {
+            RaycastHit hit = hits[i];
 
-        ToggleOrCreateGraph(gridX, gridY);
+            if (hit.collider == null)
+                continue;
+
+            CO2GridLineGraph hitGrid = hit.collider.GetComponentInParent<CO2GridLineGraph>();
+
+            if (hitGrid != this)
+                continue;
+
+            return TryGetCellIndex(hit.point, out gridX, out gridY);
+        }
+
+        return false;
     }
 
     private void ToggleOrCreateGraph(int gridX, int gridY)
@@ -520,20 +601,56 @@ public class CO2GridLineGraph : MonoBehaviour
             return;
         }
 
+        if (!allowOrthogonalAdjacentGraphs && HasOrthogonalAdjacentOpenGraph(cell, out Vector2Int adjacentCell))
+        {
+            if (ignoreClickWhenAdjacentGraphExists)
+            {
+                if (logRejectedAdjacentClicks)
+                {
+                    Debug.Log(
+                        $"CO2 graf nije otvoren na ćeliji ({gridX},{gridY}) jer već postoji susjedni graf na ćeliji ({adjacentCell.x},{adjacentCell.y})."
+                    );
+                }
+
+                return;
+            }
+
+            CloseGraph(adjacentCell);
+        }
+
         EnforceMaxOpenGraphs();
+
+        GameObject graphRoot = BuildGraph(gridX, gridY, true);
 
         GraphInstance instance = new GraphInstance
         {
-            cell = cell,
-            openedRelativeTime = GetRelativeSimulationTime(),
-            openedClockTime = DateTime.Now
+            root = graphRoot,
+            cell = cell
         };
-
-        GameObject graphRoot = BuildGraph(gridX, gridY, true, instance);
-        instance.root = graphRoot;
 
         openGraphs[cell] = instance;
         graphOpenOrder.Add(cell);
+
+        if (logClicks)
+            Debug.Log($"CO2 line graph otvoren na ćeliji ({gridX},{gridY}). Ukupno otvorenih: {openGraphs.Count}");
+    }
+
+    private bool HasOrthogonalAdjacentOpenGraph(Vector2Int newCell, out Vector2Int adjacentCell)
+    {
+        foreach (Vector2Int openCell in openGraphs.Keys)
+        {
+            int dx = Mathf.Abs(openCell.x - newCell.x);
+            int dy = Mathf.Abs(openCell.y - newCell.y);
+
+            if (dx + dy == 1)
+            {
+                adjacentCell = openCell;
+                return true;
+            }
+        }
+
+        adjacentCell = new Vector2Int(-1, -1);
+        return false;
     }
 
     private void EnforceMaxOpenGraphs()
@@ -583,13 +700,13 @@ public class CO2GridLineGraph : MonoBehaviour
             if (instance.root != null)
                 Destroy(instance.root);
 
-            GameObject rebuilt = BuildGraph(cell.x, cell.y, false, instance);
+            GameObject rebuilt = BuildGraph(cell.x, cell.y, false);
             instance.root = rebuilt;
             openGraphs[cell] = instance;
         }
     }
 
-    private GameObject BuildGraph(int gridX, int gridY, bool animate, GraphInstance instance)
+    private GameObject BuildGraph(int gridX, int gridY, bool animate)
     {
         Vector3 cellCenter = GetCellCenterWorld(gridX, gridY);
 
@@ -602,7 +719,7 @@ public class CO2GridLineGraph : MonoBehaviour
 
         CreatePanel(root.transform);
         CreateAxes(root.transform);
-        CreateLabels(root.transform, instance);
+        CreateLabels(root.transform);
         CreateGraphLine(root.transform, gridX, gridY);
 
         if (animate)
@@ -657,7 +774,7 @@ public class CO2GridLineGraph : MonoBehaviour
         lr.SetPosition(2, bottomRight);
     }
 
-    private void CreateLabels(Transform parent, GraphInstance instance)
+    private void CreateLabels(Transform parent)
     {
         CreateText(
             parent,
@@ -696,57 +813,51 @@ public class CO2GridLineGraph : MonoBehaviour
             labelCharacterSize * 0.85f
         );
 
-        CreateShiftingTimeLabels(parent, instance);
+        CreateRollingTimeLabels(parent);
     }
 
-    private void CreateShiftingTimeLabels(Transform parent, GraphInstance instance)
+    private void CreateRollingTimeLabels(Transform parent)
     {
-        float nowRelative = GetRelativeSimulationTime();
+        DateTime now = DateTime.Now;
+        DateTime minusHalf = now.AddSeconds(-graphWindowSeconds * 0.5f);
+        DateTime minusFull = now.AddSeconds(-graphWindowSeconds);
+
         float leftX = -graphWidth * 0.5f;
+        float middleX = 0f;
         float rightX = graphWidth * 0.5f;
 
         float labelY = -0.09f;
         float labelZ = -0.03f;
 
-        int maxLabels = Mathf.CeilToInt(graphWindowSeconds / timeLabelIntervalSeconds) + 1;
+        CreateText(
+            parent,
+            minusFull.ToString("HH:mm:ss"),
+            new Vector3(leftX, labelY, labelZ),
+            labelFontSize - 8,
+            labelCharacterSize * 0.8f,
+            TextAnchor.MiddleLeft,
+            TextAlignment.Left
+        );
 
-        for (int i = 0; i < maxLabels; i++)
-        {
-            float labelRelativeTime = instance.openedRelativeTime + i * timeLabelIntervalSeconds;
-            float age = nowRelative - labelRelativeTime;
+        CreateText(
+            parent,
+            minusHalf.ToString("HH:mm:ss"),
+            new Vector3(middleX, labelY, labelZ),
+            labelFontSize - 8,
+            labelCharacterSize * 0.8f,
+            TextAnchor.MiddleCenter,
+            TextAlignment.Center
+        );
 
-            if (age < 0f || age > graphWindowSeconds)
-                continue;
-
-            float xT = Mathf.InverseLerp(0f, graphWindowSeconds, age);
-            float x = Mathf.Lerp(leftX, rightX, xT);
-
-            DateTime labelClockTime = instance.openedClockTime.AddSeconds(i * timeLabelIntervalSeconds);
-
-            TextAnchor anchor = TextAnchor.MiddleCenter;
-            TextAlignment alignment = TextAlignment.Center;
-
-            if (xT < 0.15f)
-            {
-                anchor = TextAnchor.MiddleLeft;
-                alignment = TextAlignment.Left;
-            }
-            else if (xT > 0.85f)
-            {
-                anchor = TextAnchor.MiddleRight;
-                alignment = TextAlignment.Right;
-            }
-
-            CreateText(
-                parent,
-                labelClockTime.ToString("HH:mm:ss"),
-                new Vector3(x, labelY, labelZ),
-                labelFontSize - 8,
-                labelCharacterSize * 0.8f,
-                anchor,
-                alignment
-            );
-        }
+        CreateText(
+            parent,
+            now.ToString("HH:mm:ss"),
+            new Vector3(rightX, labelY, labelZ),
+            labelFontSize - 8,
+            labelCharacterSize * 0.8f,
+            TextAnchor.MiddleRight,
+            TextAlignment.Right
+        );
     }
 
     private void CreateGraphLine(Transform parent, int gridX, int gridY)
@@ -778,9 +889,7 @@ public class CO2GridLineGraph : MonoBehaviour
             if (sample.relativeTime < minTime)
                 continue;
 
-            float age = now - sample.relativeTime;
-            float xT = Mathf.InverseLerp(0f, graphWindowSeconds, age);
-
+            float xT = Mathf.InverseLerp(minTime, now, sample.relativeTime);
             float yT = Mathf.InverseLerp(minCO2Ppm, maxCO2Ppm, sample.co2Ppm);
 
             xT = Mathf.Clamp01(xT);
@@ -808,6 +917,14 @@ public class CO2GridLineGraph : MonoBehaviour
         if (points.Count == 1)
             points.Add(points[0] + new Vector3(0.02f, 0f, 0f));
 
+        CO2Sample latest = history[history.Count - 1];
+
+        Color currentGraphColor = useCurrentCO2ColorForGraphLine
+            ? GetColorForCO2(latest.co2Ppm)
+            : fallbackLineColor;
+
+        currentGraphColor.a = 1f;
+
         GameObject lineObject = new GameObject("CO2GraphLine");
         lineObject.transform.SetParent(parent, false);
 
@@ -816,18 +933,16 @@ public class CO2GridLineGraph : MonoBehaviour
         line.positionCount = points.Count;
         line.startWidth = graphLineWidth;
         line.endWidth = graphLineWidth;
-        line.material = CreateUnlitRuntimeMaterial(lineColor);
-        line.startColor = lineColor;
-        line.endColor = lineColor;
+        line.material = CreateUnlitRuntimeMaterial(currentGraphColor);
+        line.startColor = currentGraphColor;
+        line.endColor = currentGraphColor;
 
         for (int i = 0; i < points.Count; i++)
             line.SetPosition(i, points[i]);
 
-        Vector3 latestPoint = points[0];
+        Vector3 latestPoint = points[points.Count - 1];
 
-        CreateLatestPoint(parent, latestPoint);
-
-        CO2Sample latest = history[history.Count - 1];
+        CreateLatestPoint(parent, latestPoint, currentGraphColor);
 
         CreateText(
             parent,
@@ -840,7 +955,7 @@ public class CO2GridLineGraph : MonoBehaviour
         );
     }
 
-    private void CreateLatestPoint(Transform parent, Vector3 localPosition)
+    private void CreateLatestPoint(Transform parent, Vector3 localPosition, Color pointColor)
     {
         GameObject point = GameObject.CreatePrimitive(PrimitiveType.Sphere);
         point.name = "CO2LatestPoint";
@@ -854,7 +969,7 @@ public class CO2GridLineGraph : MonoBehaviour
             Destroy(col);
 
         Renderer renderer = point.GetComponent<Renderer>();
-        renderer.material = CreateUnlitRuntimeMaterial(latestPointColor);
+        renderer.material = CreateUnlitRuntimeMaterial(pointColor);
     }
 
     private TextMesh CreateText(

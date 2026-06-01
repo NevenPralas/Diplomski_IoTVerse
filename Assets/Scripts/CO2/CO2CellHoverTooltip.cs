@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 public class CO2CellHoverTooltip : MonoBehaviour
 {
@@ -6,7 +6,10 @@ public class CO2CellHoverTooltip : MonoBehaviour
     [SerializeField] private CO2GridLineGraph co2Grid;
     [SerializeField] private SwitcherSensor switcherSensor;
 
-    [Tooltip("Transform iz kojeg ide bijeli laser/ray.")]
+    [Tooltip("Novi zasebni CO2 cursor. Ako je spojen, tooltip koristi njegovu ćeliju.")]
+    [SerializeField] private CO2GridCellCursor co2CellCursor;
+
+    [Tooltip("Fallback transform iz kojeg ide bijeli laser/ray.")]
     [SerializeField] private Transform rayOrigin;
 
     [Header("Raycast")]
@@ -26,7 +29,7 @@ public class CO2CellHoverTooltip : MonoBehaviour
     [SerializeField] private Font labelFont;
 
     [Header("Marker Visual")]
-    [SerializeField] private bool showMarker = true;
+    [SerializeField] private bool showMarker = false;
     [SerializeField] private float markerRadius = 0.055f;
     [SerializeField] private Color markerColor = Color.white;
 
@@ -84,7 +87,10 @@ public class CO2CellHoverTooltip : MonoBehaviour
         if (switcherSensor != null && !switcherSensor.IsAirQualityModeActive())
             return false;
 
-        if (co2Grid == null || rayOrigin == null)
+        if (co2Grid == null)
+            return false;
+
+        if (co2CellCursor == null && rayOrigin == null)
             return false;
 
         return true;
@@ -92,44 +98,96 @@ public class CO2CellHoverTooltip : MonoBehaviour
 
     private void UpdateHover()
     {
+        if (TryGetCellFromCursor(out int cursorX, out int cursorY))
+        {
+            UpdateHoverForCell(cursorX, cursorY);
+            return;
+        }
+
+        if (TryGetCellFromRay(out int rayX, out int rayY, out Vector3 hitPoint))
+        {
+            UpdateHoverForCell(rayX, rayY, hitPoint);
+            return;
+        }
+
+        HideHover();
+    }
+
+    private bool TryGetCellFromCursor(out int gridX, out int gridY)
+    {
+        gridX = -1;
+        gridY = -1;
+
+        if (co2CellCursor == null || !co2CellCursor.HasValidCell)
+            return false;
+
+        Vector2Int cell = co2CellCursor.CurrentCell;
+        gridX = cell.x;
+        gridY = cell.y;
+        return true;
+    }
+
+    private bool TryGetCellFromRay(out int gridX, out int gridY, out Vector3 hitPoint)
+    {
+        gridX = -1;
+        gridY = -1;
+        hitPoint = Vector3.zero;
+
+        if (rayOrigin == null)
+            return false;
+
         Vector3 origin = rayOrigin.position;
         Vector3 direction = rayOrigin.forward.normalized;
 
         if (debugRay)
             Debug.DrawRay(origin, direction * rayDistance, Color.green);
 
-        bool hasHit = Physics.Raycast(
+        RaycastHit[] hits = Physics.RaycastAll(
             origin,
             direction,
-            out RaycastHit hit,
             rayDistance,
             hoverLayerMask,
             QueryTriggerInteraction.Collide
         );
 
-        if (!hasHit || hit.collider == null)
+        if (hits == null || hits.Length == 0)
+            return false;
+
+        System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
+
+        for (int i = 0; i < hits.Length; i++)
         {
-            HideHover();
-            return;
+            RaycastHit hit = hits[i];
+
+            if (hit.collider == null)
+                continue;
+
+            CO2GridLineGraph hitGrid = hit.collider.GetComponentInParent<CO2GridLineGraph>();
+
+            if (hitGrid == null || hitGrid != co2Grid)
+                continue;
+
+            if (!co2Grid.TryGetCellIndex(hit.point, out gridX, out gridY))
+                continue;
+
+            hitPoint = hit.point;
+            return true;
         }
 
-        CO2GridLineGraph hitGrid = hit.collider.GetComponentInParent<CO2GridLineGraph>();
+        return false;
+    }
 
-        if (hitGrid == null || hitGrid != co2Grid)
-        {
-            HideHover();
-            return;
-        }
+    private void UpdateHoverForCell(int gridX, int gridY)
+    {
+        Vector3 cellCenter = co2Grid.GetCellCenterWorld(gridX, gridY);
+        UpdateHoverForCell(gridX, gridY, cellCenter);
+    }
 
-        if (!co2Grid.TryGetCellIndex(hit.point, out int gridX, out int gridY))
-        {
-            HideHover();
-            return;
-        }
-
+    private void UpdateHoverForCell(int gridX, int gridY, Vector3 fallbackPoint)
+    {
         if (!co2Grid.TryGetDisplayedCO2ForCell(gridX, gridY, out float displayedCO2))
         {
-            ShowNoData(hit.point, gridX, gridY);
+            HideHover();
             return;
         }
 
@@ -137,12 +195,6 @@ public class CO2CellHoverTooltip : MonoBehaviour
 
         tooltipText.text = $"Average CO2: {displayedCO2:F0} ppm";
         ShowHover(cellCenter);
-    }
-
-    private void ShowNoData(Vector3 hitPoint, int gridX, int gridY)
-    {
-        tooltipText.text = $"CO2 ({gridX},{gridY}): no data";
-        ShowHover(hitPoint);
     }
 
     private void ShowHover(Vector3 worldPoint)
