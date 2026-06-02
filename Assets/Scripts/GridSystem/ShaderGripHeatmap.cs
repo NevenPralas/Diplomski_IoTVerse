@@ -70,6 +70,18 @@ public class ShaderGridHeatmap : MonoBehaviour
     [Tooltip("Vremenski prozor za srednju temperaturu u sekundama. 0 ili manje znaci prosjek svih sacuvanih mjerenja za celiju.")]
     [SerializeField] private float averageTemperatureWindowSeconds = 60f;
 
+    [Header("Automatic Expiration")]
+    [Tooltip("Ako je ukljuceno, celija se potpuno brise kad nema nijedan sample mladji od Cell Data Lifetime Seconds.")]
+    [SerializeField] private bool removeCellsWithNoRecentSamples = true;
+
+    [Tooltip("Nakon koliko sekundi bez novog mjerenja celija gubi boju i history. Za tvoj use-case ostavi 60.")]
+    [SerializeField] private float cellDataLifetimeSeconds = 60f;
+
+    [Tooltip("Koliko cesto se provjerava treba li obrisati stare celije.")]
+    [SerializeField] private float expirationRefreshInterval = 1f;
+
+    private float expirationTimer = 0f;
+
     private Texture2D heatmapTexture;
     private Material runtimeMaterial;
     private float cellWidth;
@@ -93,6 +105,20 @@ public class ShaderGridHeatmap : MonoBehaviour
             PaintRandomCells(randomCellsCount, clearBeforeRandomFill);
     }
 
+    private void Update()
+    {
+        if (!removeCellsWithNoRecentSamples)
+            return;
+
+        expirationTimer += Time.deltaTime;
+
+        if (expirationTimer < expirationRefreshInterval)
+            return;
+
+        expirationTimer = 0f;
+        PruneExpiredSamplesAndRefreshTexture();
+    }
+
 #if UNITY_EDITOR
     private void OnValidate()
     {
@@ -103,6 +129,11 @@ public class ShaderGridHeatmap : MonoBehaviour
             targetRenderer = GetComponent<Renderer>();
 
         InitializeHeatmap();
+
+        cellDataLifetimeSeconds = Mathf.Max(1f, cellDataLifetimeSeconds);
+        expirationRefreshInterval = Mathf.Max(0.1f, expirationRefreshInterval);
+        historyRetentionSeconds = Mathf.Max(cellDataLifetimeSeconds, historyRetentionSeconds);
+        averageTemperatureWindowSeconds = Mathf.Max(1f, averageTemperatureWindowSeconds);
 
         if (generateRandomCellsOnStart)
             PaintRandomCells(randomCellsCount, clearBeforeRandomFill);
@@ -238,6 +269,81 @@ public class ShaderGridHeatmap : MonoBehaviour
 
         float minAllowedTime = relativeTime - historyRetentionSeconds;
         samples.RemoveAll(sample => sample.relativeTime < minAllowedTime);
+    }
+
+    public void PruneExpiredSamplesAndRefreshTexture()
+    {
+        if (heatmapTexture == null)
+            return;
+
+        float currentTime = GetRelativeSimulationTime();
+        float minAllowedTime = currentTime - cellDataLifetimeSeconds;
+
+        bool textureChanged = false;
+        List<Vector2Int> keysToRemove = new List<Vector2Int>();
+
+        foreach (KeyValuePair<Vector2Int, List<CellTemperatureSample>> pair in cellHistory)
+        {
+            List<CellTemperatureSample> samples = pair.Value;
+
+            int removed = samples.RemoveAll(sample => sample.relativeTime < minAllowedTime);
+
+            if (removed > 0)
+                textureChanged = true;
+
+            if (samples.Count == 0)
+            {
+                keysToRemove.Add(pair.Key);
+                ClearCellPixel(pair.Key.x, pair.Key.y);
+                textureChanged = true;
+            }
+            else if (removed > 0)
+            {
+                RepaintCellFromCurrentHistory(pair.Key.x, pair.Key.y, samples);
+            }
+        }
+
+        for (int i = 0; i < keysToRemove.Count; i++)
+        {
+            cellHistory.Remove(keysToRemove[i]);
+
+            if (cellParticles != null)
+                cellParticles.ClearCellParticle(keysToRemove[i].x, keysToRemove[i].y);
+        }
+
+        if (textureChanged)
+            ApplyTexture();
+    }
+
+    private void RepaintCellFromCurrentHistory(int gridX, int gridY, List<CellTemperatureSample> samples)
+    {
+        if (samples == null || samples.Count == 0)
+        {
+            ClearCellPixel(gridX, gridY);
+            return;
+        }
+
+        float displayedTemperature = samples[samples.Count - 1].temperature;
+
+        if (useAverageTemperatureForCellColor &&
+            TryGetAverageTemperatureForCell(gridX, gridY, averageTemperatureWindowSeconds, out float averageTemperature))
+        {
+            displayedTemperature = averageTemperature;
+        }
+
+        Color color = GetTemperatureColor(displayedTemperature);
+        heatmapTexture.SetPixel(gridSizeX - 1 - gridX, gridSizeY - 1 - gridY, color);
+    }
+
+    private void ClearCellPixel(int gridX, int gridY)
+    {
+        if (heatmapTexture == null)
+            return;
+
+        if (gridX < 0 || gridX >= gridSizeX || gridY < 0 || gridY >= gridSizeY)
+            return;
+
+        heatmapTexture.SetPixel(gridSizeX - 1 - gridX, gridSizeY - 1 - gridY, new Color(0f, 0f, 0f, 0f));
     }
 
     private float GetDisplayedTemperatureForCell(int gridX, int gridY, float fallbackTemperature)

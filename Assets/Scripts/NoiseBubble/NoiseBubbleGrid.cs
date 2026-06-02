@@ -68,14 +68,50 @@ public class NoiseBubbleGrid : MonoBehaviour
     [SerializeField] private float verticalOffset = 0.18f;
     [SerializeField] private bool snapToCellCenter = true;
 
-    [Header("Pulse / Titranje")]
-    [SerializeField] private bool pulseOnlyWhileCellIsActive = true;
+    [Header("Active Bubble Pulse")]
+    [Tooltip("Koliko dugo nakon zadnjeg mjerenja ćelija vrijedi kao aktualna.")]
     [SerializeField] private float activePulseTimeoutSeconds = 1.25f;
-    [SerializeField] private float pulseAmplitude = 0.04f;
-    [SerializeField] private float pulseAmplitudeAtMaxNoise = 0.10f;
-    [SerializeField] private float minPulseSpeed = 1.2f;
-    [SerializeField] private float maxPulseSpeed = 4.5f;
+
+    [Tooltip("Aktualna kugla pulsira brže i življe.")]
+    [SerializeField] private float activePulseAmplitude = 0.06f;
+
+    [SerializeField] private float activePulseAmplitudeAtMaxNoise = 0.14f;
+    [SerializeField] private float activeMinPulseSpeed = 1.2f;
+    [SerializeField] private float activeMaxPulseSpeed = 4.5f;
+
+    [Header("Old / Inactive Bubble Breathing")]
+    [Tooltip("Stare kugle nisu statične nego sporo dišu.")]
+    [SerializeField] private bool animateInactiveBubbles = true;
+
+    [Tooltip("Sporo titranje starih kugli. Manje vrijednosti = mirnije.")]
+    [SerializeField] private float inactivePulseAmplitude = 0.025f;
+
+    [SerializeField] private float inactivePulseAmplitudeAtMaxNoise = 0.055f;
+
+    [Tooltip("Stare kugle titraju puno sporije od aktualne.")]
+    [SerializeField] private float inactiveMinPulseSpeed = 0.18f;
+
+    [SerializeField] private float inactiveMaxPulseSpeed = 0.65f;
+
+    [Tooltip("Kad je uključeno, svaka ćelija ima malo drugačiju fazu titranja.")]
     [SerializeField] private bool randomizePulsePhasePerCell = true;
+
+    [Header("Old / Inactive Bubble Look")]
+    [Tooltip("Stare kugle zadržavaju RGB boju vrijednosti, ali su prozirnije.")]
+    [Range(0f, 1f)]
+    [SerializeField] private float inactiveAlphaMultiplier = 0.48f;
+
+    [Tooltip("Aktualne kugle imaju puniji alpha.")]
+    [Range(0f, 1f)]
+    [SerializeField] private float activeAlphaMultiplier = 1.0f;
+
+    [Tooltip("Stare kugle slabije svijetle.")]
+    [Range(0f, 1f)]
+    [SerializeField] private float inactiveEmissionMultiplier = 0.35f;
+
+    [Tooltip("Aktualne kugle jače svijetle.")]
+    [Range(0f, 2f)]
+    [SerializeField] private float activeEmissionMultiplier = 1.0f;
 
     [Header("Color Mapping")]
     [SerializeField] private bool useDefaultNoiseGradient = true;
@@ -86,7 +122,9 @@ public class NoiseBubbleGrid : MonoBehaviour
     [SerializeField] private float bubbleAlpha = 0.75f;
 
     [Header("Lifetime")]
+    [Tooltip("Ako je true, posjećene ćelije ostaju zauvijek. Ako je false, brišu se nakon removeAfterSeconds.")]
     [SerializeField] private bool keepVisitedCellsVisible = false;
+
     [SerializeField] private float removeAfterSeconds = 60f;
 
     [Header("Hover / Physics")]
@@ -144,8 +182,11 @@ public class NoiseBubbleGrid : MonoBehaviour
 
         sizeSmoothSpeed = Mathf.Max(0.1f, sizeSmoothSpeed);
 
-        minPulseSpeed = Mathf.Max(0.01f, minPulseSpeed);
-        maxPulseSpeed = Mathf.Max(minPulseSpeed, maxPulseSpeed);
+        activeMinPulseSpeed = Mathf.Max(0.01f, activeMinPulseSpeed);
+        activeMaxPulseSpeed = Mathf.Max(activeMinPulseSpeed, activeMaxPulseSpeed);
+
+        inactiveMinPulseSpeed = Mathf.Max(0.01f, inactiveMinPulseSpeed);
+        inactiveMaxPulseSpeed = Mathf.Max(inactiveMinPulseSpeed, inactiveMaxPulseSpeed);
 
         if (useDefaultNoiseGradient)
             noiseGradient = CreateDefaultNoiseGradient();
@@ -194,7 +235,8 @@ public class NoiseBubbleGrid : MonoBehaviour
         cellData.latestNoiseDb = displayNoise;
         cellData.targetDiameter = GetDiameterForNoise(displayNoise);
 
-        UpdateBubbleMaterial(cellData, displayNoise);
+        // Kad je robot upravo na toj ćeliji, odmah osvježi kao aktivnu kuglu.
+        UpdateBubbleMaterial(cellData, displayNoise, true);
 
         if (logAddedSamples)
         {
@@ -383,9 +425,9 @@ public class NoiseBubbleGrid : MonoBehaviour
             if (cellData == null || cellData.bubbleObject == null)
                 continue;
 
-            bool isActiveCell =
-                !pulseOnlyWhileCellIsActive ||
-                Time.time - cellData.lastUpdateTime <= activePulseTimeoutSeconds;
+            float age = Time.time - cellData.lastUpdateTime;
+
+            bool isActiveCell = age <= activePulseTimeoutSeconds;
 
             cellData.currentDiameter = Mathf.Lerp(
                 cellData.currentDiameter,
@@ -393,31 +435,47 @@ public class NoiseBubbleGrid : MonoBehaviour
                 Time.deltaTime * sizeSmoothSpeed
             );
 
-            float displayDiameter = cellData.currentDiameter;
+            float normalized = GetNormalizedNoise(cellData.latestNoiseDb);
+
+            float pulseSpeed;
+            float amplitude;
 
             if (isActiveCell)
             {
-                float normalized = GetNormalizedNoise(cellData.latestNoiseDb);
-
-                float pulseSpeed = Mathf.Lerp(minPulseSpeed, maxPulseSpeed, normalized);
-                float amplitude = Mathf.Lerp(pulseAmplitude, pulseAmplitudeAtMaxNoise, normalized);
-
-                float phase = randomizePulsePhasePerCell
-                    ? GetStableCellPhase(cellData.cell)
-                    : 0f;
-
-                float pulse =
-                    1f + Mathf.Sin((Time.time + phase) * pulseSpeed * Mathf.PI * 2f) * amplitude;
-
-                displayDiameter = Mathf.Max(0.01f, cellData.currentDiameter * pulse);
-                cellData.stableDisplayDiameter = cellData.currentDiameter;
+                pulseSpeed = Mathf.Lerp(activeMinPulseSpeed, activeMaxPulseSpeed, normalized);
+                amplitude = Mathf.Lerp(activePulseAmplitude, activePulseAmplitudeAtMaxNoise, normalized);
+            }
+            else if (animateInactiveBubbles)
+            {
+                pulseSpeed = Mathf.Lerp(inactiveMinPulseSpeed, inactiveMaxPulseSpeed, normalized);
+                amplitude = Mathf.Lerp(inactivePulseAmplitude, inactivePulseAmplitudeAtMaxNoise, normalized);
             }
             else
             {
-                displayDiameter = Mathf.Max(0.01f, cellData.stableDisplayDiameter);
+                pulseSpeed = 0f;
+                amplitude = 0f;
             }
 
+            float phase = randomizePulsePhasePerCell
+                ? GetStableCellPhase(cellData.cell)
+                : 0f;
+
+            float pulse = 1f;
+
+            if (pulseSpeed > 0f && amplitude > 0f)
+            {
+                pulse =
+                    1f +
+                    Mathf.Sin((Time.time + phase) * pulseSpeed * Mathf.PI * 2f) * amplitude;
+            }
+
+            float displayDiameter = Mathf.Max(0.01f, cellData.currentDiameter * pulse);
+
+            cellData.stableDisplayDiameter = cellData.currentDiameter;
             cellData.bubbleObject.transform.localScale = Vector3.one * displayDiameter;
+
+            // RGB ostaje ista vrijednost buke, ali se alpha/emission razlikuju za active vs old.
+            UpdateBubbleMaterial(cellData, cellData.latestNoiseDb, isActiveCell);
         }
     }
 
@@ -430,18 +488,30 @@ public class NoiseBubbleGrid : MonoBehaviour
             if (cellData == null)
                 continue;
 
+            float age = Time.time - cellData.lastUpdateTime;
+            bool isActiveCell = age <= activePulseTimeoutSeconds;
+
             cellData.targetDiameter = GetDiameterForNoise(cellData.latestNoiseDb);
-            UpdateBubbleMaterial(cellData, cellData.latestNoiseDb);
+            UpdateBubbleMaterial(cellData, cellData.latestNoiseDb, isActiveCell);
         }
     }
 
-    private void UpdateBubbleMaterial(NoiseCellData cellData, float noiseDb)
+    private void UpdateBubbleMaterial(NoiseCellData cellData, float noiseDb, bool isActiveCell)
     {
         if (cellData == null || cellData.bubbleMaterial == null)
             return;
 
         Color color = GetColorForNoise(noiseDb);
-        color.a = bubbleAlpha;
+
+        float alphaMultiplier = isActiveCell
+            ? activeAlphaMultiplier
+            : inactiveAlphaMultiplier;
+
+        float emissionMultiplier = isActiveCell
+            ? activeEmissionMultiplier
+            : inactiveEmissionMultiplier;
+
+        color.a = bubbleAlpha * alphaMultiplier;
 
         if (cellData.bubbleMaterial.HasProperty("_BaseColor"))
             cellData.bubbleMaterial.SetColor("_BaseColor", color);
@@ -452,7 +522,7 @@ public class NoiseBubbleGrid : MonoBehaviour
         if (emissionIntensity > 0f && cellData.bubbleMaterial.HasProperty("_EmissionColor"))
         {
             cellData.bubbleMaterial.EnableKeyword("_EMISSION");
-            cellData.bubbleMaterial.SetColor("_EmissionColor", color * emissionIntensity);
+            cellData.bubbleMaterial.SetColor("_EmissionColor", color * emissionIntensity * emissionMultiplier);
         }
     }
 

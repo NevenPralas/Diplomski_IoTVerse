@@ -69,6 +69,18 @@ public class CO2GridLineGraph : MonoBehaviour
 
     [SerializeField] private float averageWindowSeconds = 60f;
 
+    [Header("Automatic Expiration")]
+    [Tooltip("Ako je uključeno, ćelija se potpuno briše kad nema nijedan CO2 sample mlađi od Cell Data Lifetime Seconds.")]
+    [SerializeField] private bool removeCellsWithNoRecentSamples = true;
+
+    [Tooltip("Nakon koliko sekundi bez novog mjerenja ćelija gubi boju, Average CO2 tooltip i podatke grafa. Za tvoj use-case ostavi 60.")]
+    [SerializeField] private float cellDataLifetimeSeconds = 60f;
+
+    [Tooltip("Koliko često se provjerava treba li obrisati stare CO2 ćelije.")]
+    [SerializeField] private float expirationRefreshInterval = 1f;
+
+    private float expirationTimer = 0f;
+
     [Header("Interaction")]
     [Tooltip("Novi zasebni CO2 cursor. Ne koristi temperaturni GridCellCursor.")]
     [SerializeField] private CO2GridCellCursor co2CellCursor;
@@ -207,7 +219,10 @@ public class CO2GridLineGraph : MonoBehaviour
         minCO2Ppm = Mathf.Min(minCO2Ppm, maxCO2Ppm - 1f);
         maxCO2Ppm = Mathf.Max(maxCO2Ppm, minCO2Ppm + 1f);
 
-        historyRetentionSeconds = Mathf.Max(1f, historyRetentionSeconds);
+        cellDataLifetimeSeconds = Mathf.Max(1f, cellDataLifetimeSeconds);
+        expirationRefreshInterval = Mathf.Max(0.1f, expirationRefreshInterval);
+
+        historyRetentionSeconds = Mathf.Max(cellDataLifetimeSeconds, historyRetentionSeconds);
         averageWindowSeconds = Mathf.Max(1f, averageWindowSeconds);
         graphWindowSeconds = Mathf.Max(1f, graphWindowSeconds);
 
@@ -221,6 +236,17 @@ public class CO2GridLineGraph : MonoBehaviour
     private void Update()
     {
         HandleClick();
+
+        if (removeCellsWithNoRecentSamples)
+        {
+            expirationTimer += Time.deltaTime;
+
+            if (expirationTimer >= expirationRefreshInterval)
+            {
+                expirationTimer = 0f;
+                PruneExpiredSamplesAndRefreshTexture();
+            }
+        }
 
         if (openGraphs.Count > 0)
         {
@@ -448,6 +474,82 @@ public class CO2GridLineGraph : MonoBehaviour
 
         float minAllowedTime = relativeTime - historyRetentionSeconds;
         samples.RemoveAll(sample => sample.relativeTime < minAllowedTime);
+    }
+
+
+    public void PruneExpiredSamplesAndRefreshTexture()
+    {
+        if (heatmapTexture == null)
+            return;
+
+        float currentTime = GetRelativeSimulationTime();
+        float minAllowedTime = currentTime - cellDataLifetimeSeconds;
+
+        bool textureChanged = false;
+        List<Vector2Int> keysToRemove = new List<Vector2Int>();
+
+        foreach (KeyValuePair<Vector2Int, List<CO2Sample>> pair in cellHistory)
+        {
+            List<CO2Sample> samples = pair.Value;
+
+            int removed = samples.RemoveAll(sample => sample.relativeTime < minAllowedTime);
+
+            if (removed > 0)
+                textureChanged = true;
+
+            if (samples.Count == 0)
+            {
+                keysToRemove.Add(pair.Key);
+                ClearCellPixel(pair.Key.x, pair.Key.y);
+                textureChanged = true;
+            }
+            else if (removed > 0)
+            {
+                RepaintCellFromCurrentHistory(pair.Key.x, pair.Key.y, samples);
+            }
+        }
+
+        for (int i = 0; i < keysToRemove.Count; i++)
+            cellHistory.Remove(keysToRemove[i]);
+
+        if (textureChanged)
+        {
+            ApplyTexture();
+
+            if (openGraphs.Count > 0)
+                RebuildAllOpenGraphs();
+        }
+    }
+
+    private void RepaintCellFromCurrentHistory(int gridX, int gridY, List<CO2Sample> samples)
+    {
+        if (samples == null || samples.Count == 0)
+        {
+            ClearCellPixel(gridX, gridY);
+            return;
+        }
+
+        float displayedCO2 = samples[samples.Count - 1].co2Ppm;
+
+        if (useAverageCO2ForCellColor &&
+            TryGetAverageCO2ForCell(gridX, gridY, averageWindowSeconds, out float averageCO2))
+        {
+            displayedCO2 = averageCO2;
+        }
+
+        Color color = GetColorForCO2(displayedCO2);
+        heatmapTexture.SetPixel(gridSizeX - 1 - gridX, gridSizeY - 1 - gridY, color);
+    }
+
+    private void ClearCellPixel(int gridX, int gridY)
+    {
+        if (heatmapTexture == null)
+            return;
+
+        if (gridX < 0 || gridX >= gridSizeX || gridY < 0 || gridY >= gridSizeY)
+            return;
+
+        heatmapTexture.SetPixel(gridSizeX - 1 - gridX, gridSizeY - 1 - gridY, emptyCellColor);
     }
 
     private bool TryGetAverageCO2ForCell(int gridX, int gridY, float windowSeconds, out float averageCO2)

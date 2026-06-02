@@ -163,6 +163,22 @@ public class HeatmapCellParticles : MonoBehaviour
         }
     }
 
+
+    public void ClearCellParticle(int gridX, int gridY)
+    {
+        Vector2Int key = new Vector2Int(gridX, gridY);
+
+        if (activeParticles.TryGetValue(key, out ParticleSystem ps))
+        {
+            if (ps != null)
+                Destroy(ps.gameObject);
+
+            activeParticles.Remove(key);
+        }
+
+        blockedCells.Remove(key);
+    }
+
     public void ClearAllParticles()
     {
         foreach (var kvp in activeParticles)
