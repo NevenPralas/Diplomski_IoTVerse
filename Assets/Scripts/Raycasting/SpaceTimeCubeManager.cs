@@ -62,6 +62,15 @@ public class SpaceTimeCubeManager : MonoBehaviour
     [SerializeField] private AudioClip despawnSound;
     [SerializeField] private AudioSource audioSource;
 
+    [Header("Close Animation")]
+    [Tooltip("Ako je uključeno, stupac se pri zatvaranju elegantno spusti prema podu umjesto da odmah nestane.")]
+    [SerializeField] private bool animateColumnClose = true;
+
+    [SerializeField] private float columnCloseDuration = 0.35f;
+
+    [Tooltip("Ako je uključeno, svi rendereri stupca lagano blijede tijekom spuštanja. Ako shader ne podržava alpha, i dalje radi scale-down animacija.")]
+    [SerializeField] private bool fadeColumnOnClose = true;
+
     [Header("Multiple Columns")]
     [Tooltip("0 znaci neograniceno. Ako stavis npr. 5, moze biti otvoreno najvise 5 stupaca.")]
     [SerializeField] private int maxOpenColumns = 0;
@@ -208,13 +217,32 @@ public class SpaceTimeCubeManager : MonoBehaviour
             {
                 Vector3 soundPosition = instance.root.transform.position + Vector3.up * (cubeHeight * 0.5f);
                 PlayDespawnSound(soundPosition);
-                Destroy(instance.root);
+                StartColumnCloseAnimation(instance.root);
             }
 
             openColumns.Remove(cell);
         }
 
         columnOpenOrder.Remove(cell);
+    }
+
+    private void StartColumnCloseAnimation(GameObject columnRoot)
+    {
+        if (columnRoot == null)
+            return;
+
+        if (!animateColumnClose)
+        {
+            Destroy(columnRoot);
+            return;
+        }
+
+        SpaceTimeColumnCloseAnimator closeAnimator = columnRoot.GetComponent<SpaceTimeColumnCloseAnimator>();
+
+        if (closeAnimator == null)
+            closeAnimator = columnRoot.AddComponent<SpaceTimeColumnCloseAnimator>();
+
+        closeAnimator.Init(columnCloseDuration, fadeColumnOnClose);
     }
 
     private void RebuildAllOpenColumns()
@@ -618,3 +646,131 @@ public class SpaceTimeCubeManager : MonoBehaviour
             AudioSource.PlayClipAtPoint(despawnSound, position);
     }
 }
+
+
+public class SpaceTimeColumnCloseAnimator : MonoBehaviour
+{
+    private float duration = 0.35f;
+    private bool fadeRenderers = true;
+    private float timer = 0f;
+
+    private Vector3 startScale;
+    private Renderer[] renderers;
+    private Material[] materials;
+    private Color[] originalColors;
+    private Color[] originalBaseColors;
+    private bool[] hasColorProperty;
+    private bool[] hasBaseColorProperty;
+
+    public void Init(float animationDuration, bool shouldFadeRenderers)
+    {
+        duration = Mathf.Max(0.05f, animationDuration);
+        fadeRenderers = shouldFadeRenderers;
+        timer = 0f;
+        startScale = transform.localScale;
+
+        // ColumnAnimator na bijelom stupcu pulsira scale. Za vrijeme zatvaranja ga gasimo,
+        // jer sada cijeli root kontrolira elegantno spuštanje prema dolje.
+        ColumnAnimator[] columnAnimators = GetComponentsInChildren<ColumnAnimator>(true);
+        for (int i = 0; i < columnAnimators.Length; i++)
+        {
+            if (columnAnimators[i] != null)
+                columnAnimators[i].enabled = false;
+        }
+
+        CacheRendererMaterials();
+    }
+
+    private void CacheRendererMaterials()
+    {
+        renderers = GetComponentsInChildren<Renderer>(true);
+
+        if (renderers == null)
+        {
+            materials = new Material[0];
+            originalColors = new Color[0];
+            originalBaseColors = new Color[0];
+            hasColorProperty = new bool[0];
+            hasBaseColorProperty = new bool[0];
+            return;
+        }
+
+        materials = new Material[renderers.Length];
+        originalColors = new Color[renderers.Length];
+        originalBaseColors = new Color[renderers.Length];
+        hasColorProperty = new bool[renderers.Length];
+        hasBaseColorProperty = new bool[renderers.Length];
+
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            if (renderers[i] == null)
+                continue;
+
+            materials[i] = renderers[i].material;
+
+            if (materials[i] == null)
+                continue;
+
+            hasColorProperty[i] = materials[i].HasProperty("_Color");
+            hasBaseColorProperty[i] = materials[i].HasProperty("_BaseColor");
+
+            if (hasColorProperty[i])
+                originalColors[i] = materials[i].GetColor("_Color");
+
+            if (hasBaseColorProperty[i])
+                originalBaseColors[i] = materials[i].GetColor("_BaseColor");
+        }
+    }
+
+    private void Update()
+    {
+        timer += Time.deltaTime;
+
+        float t = Mathf.Clamp01(timer / duration);
+        float eased = EaseInCubic(t);
+
+        // Root je na podu ćelije, zato smanjivanje Y scalea izgleda kao spuštanje odozgo prema dolje.
+        float yScale = Mathf.Lerp(startScale.y, 0.001f, eased);
+        transform.localScale = new Vector3(startScale.x, yScale, startScale.z);
+
+        if (fadeRenderers)
+            ApplyFade(1f - eased);
+
+        if (t >= 1f)
+            Destroy(gameObject);
+    }
+
+    private void ApplyFade(float alphaMultiplier)
+    {
+        if (materials == null)
+            return;
+
+        for (int i = 0; i < materials.Length; i++)
+        {
+            Material mat = materials[i];
+
+            if (mat == null)
+                continue;
+
+            if (hasColorProperty[i])
+            {
+                Color c = originalColors[i];
+                c.a *= alphaMultiplier;
+                mat.SetColor("_Color", c);
+            }
+
+            if (hasBaseColorProperty[i])
+            {
+                Color c = originalBaseColors[i];
+                c.a *= alphaMultiplier;
+                mat.SetColor("_BaseColor", c);
+            }
+        }
+    }
+
+    private float EaseInCubic(float t)
+    {
+        return t * t * t;
+    }
+}
+

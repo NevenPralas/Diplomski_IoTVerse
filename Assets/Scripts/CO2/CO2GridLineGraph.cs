@@ -115,6 +115,16 @@ public class CO2GridLineGraph : MonoBehaviour
     [Tooltip("0 znači neograničeno.")]
     [SerializeField] private int maxOpenGraphs = 0;
 
+    [Header("Popup Close Animation")]
+    [Tooltip("Ako je uključeno, CO2 line graph se pri zatvaranju elegantno smanji i lagano spusti umjesto da odmah nestane.")]
+    [SerializeField] private bool animateGraphClose = true;
+
+    [SerializeField] private float graphCloseDuration = 0.28f;
+    [SerializeField] private float graphCloseDrop = 0.08f;
+
+    [Tooltip("Ako je uključeno, panel, linija i labele lagano izblijede tijekom zatvaranja.")]
+    [SerializeField] private bool fadeGraphOnClose = true;
+
     [Header("Popup Appearance")]
     [SerializeField] private Color panelColor = new Color(1f, 1f, 1f, 1f);
     [SerializeField] private Color axisColor = new Color(0.06f, 0.06f, 0.06f, 1f);
@@ -812,7 +822,7 @@ public class CO2GridLineGraph : MonoBehaviour
         }
     }
 
-    private void CloseGraph(Vector2Int cell, bool playSound = true)
+    private void CloseGraph(Vector2Int cell, bool playSound = true, bool animateClose = true)
     {
         if (openGraphs.TryGetValue(cell, out GraphInstance instance))
         {
@@ -821,7 +831,7 @@ public class CO2GridLineGraph : MonoBehaviour
                 if (playSound)
                     PlayDespawnSound(instance.root.transform.position);
 
-                Destroy(instance.root);
+                StartGraphCloseAnimation(instance.root, animateClose);
             }
 
             openGraphs.Remove(cell);
@@ -830,12 +840,31 @@ public class CO2GridLineGraph : MonoBehaviour
         graphOpenOrder.Remove(cell);
     }
 
+    private void StartGraphCloseAnimation(GameObject graphRoot, bool animateClose)
+    {
+        if (graphRoot == null)
+            return;
+
+        if (!animateClose || !animateGraphClose)
+        {
+            Destroy(graphRoot);
+            return;
+        }
+
+        CO2GraphCloseAnimator closeAnimator = graphRoot.GetComponent<CO2GraphCloseAnimator>();
+
+        if (closeAnimator == null)
+            closeAnimator = graphRoot.AddComponent<CO2GraphCloseAnimator>();
+
+        closeAnimator.Init(graphCloseDuration, graphCloseDrop, fadeGraphOnClose);
+    }
+
     private void CloseAllGraphs()
     {
         List<Vector2Int> cells = new List<Vector2Int>(openGraphs.Keys);
 
         for (int i = 0; i < cells.Count; i++)
-            CloseGraph(cells[i], false);
+            CloseGraph(cells[i], false, false);
     }
 
     private void RebuildAllOpenGraphs()
@@ -1332,3 +1361,132 @@ public class CO2GraphPopupAnimator : MonoBehaviour
             Destroy(this);
     }
 }
+
+
+public class CO2GraphCloseAnimator : MonoBehaviour
+{
+    private float duration = 0.28f;
+    private float dropDistance = 0.08f;
+    private bool fadeRenderers = true;
+    private float timer = 0f;
+
+    private Vector3 startScale;
+    private Vector3 startPosition;
+    private Renderer[] renderers;
+    private Material[] materials;
+    private Color[] originalColors;
+    private Color[] originalBaseColors;
+    private bool[] hasColorProperty;
+    private bool[] hasBaseColorProperty;
+
+    public void Init(float animationDuration, float closeDropDistance, bool shouldFadeRenderers)
+    {
+        duration = Mathf.Max(0.05f, animationDuration);
+        dropDistance = Mathf.Max(0f, closeDropDistance);
+        fadeRenderers = shouldFadeRenderers;
+        timer = 0f;
+
+        startScale = transform.localScale;
+        startPosition = transform.position;
+
+        CO2GraphPopupAnimator popupAnimator = GetComponent<CO2GraphPopupAnimator>();
+        if (popupAnimator != null)
+            Destroy(popupAnimator);
+
+        CacheRendererMaterials();
+    }
+
+    private void CacheRendererMaterials()
+    {
+        renderers = GetComponentsInChildren<Renderer>(true);
+
+        if (renderers == null)
+        {
+            materials = new Material[0];
+            originalColors = new Color[0];
+            originalBaseColors = new Color[0];
+            hasColorProperty = new bool[0];
+            hasBaseColorProperty = new bool[0];
+            return;
+        }
+
+        materials = new Material[renderers.Length];
+        originalColors = new Color[renderers.Length];
+        originalBaseColors = new Color[renderers.Length];
+        hasColorProperty = new bool[renderers.Length];
+        hasBaseColorProperty = new bool[renderers.Length];
+
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            if (renderers[i] == null)
+                continue;
+
+            materials[i] = renderers[i].material;
+
+            if (materials[i] == null)
+                continue;
+
+            hasColorProperty[i] = materials[i].HasProperty("_Color");
+            hasBaseColorProperty[i] = materials[i].HasProperty("_BaseColor");
+
+            if (hasColorProperty[i])
+                originalColors[i] = materials[i].GetColor("_Color");
+
+            if (hasBaseColorProperty[i])
+                originalBaseColors[i] = materials[i].GetColor("_BaseColor");
+        }
+    }
+
+    private void Update()
+    {
+        timer += Time.deltaTime;
+
+        float t = Mathf.Clamp01(timer / duration);
+        float eased = EaseInBack(t);
+
+        transform.localScale = Vector3.Lerp(startScale, Vector3.one * 0.01f, eased);
+        transform.position = startPosition + Vector3.down * (dropDistance * eased);
+
+        if (fadeRenderers)
+            ApplyFade(1f - eased);
+
+        if (t >= 1f)
+            Destroy(gameObject);
+    }
+
+    private void ApplyFade(float alphaMultiplier)
+    {
+        if (materials == null)
+            return;
+
+        for (int i = 0; i < materials.Length; i++)
+        {
+            Material mat = materials[i];
+
+            if (mat == null)
+                continue;
+
+            if (hasColorProperty[i])
+            {
+                Color c = originalColors[i];
+                c.a *= alphaMultiplier;
+                mat.SetColor("_Color", c);
+            }
+
+            if (hasBaseColorProperty[i])
+            {
+                Color c = originalBaseColors[i];
+                c.a *= alphaMultiplier;
+                mat.SetColor("_BaseColor", c);
+            }
+        }
+    }
+
+    private float EaseInBack(float t)
+    {
+        float c1 = 1.70158f;
+        float c3 = c1 + 1f;
+        return c3 * t * t * t - c1 * t * t;
+    }
+}
+

@@ -19,6 +19,11 @@ public class NoiseBubbleGrid : MonoBehaviour
         public float stableDisplayDiameter;
         public float lastUpdateTime;
 
+        public float spawnStartTime;
+        public bool isDespawning;
+        public float despawnStartTime;
+        public float lastDisplayDiameter;
+
         public readonly List<NoiseSample> samples = new List<NoiseSample>();
     }
 
@@ -67,6 +72,26 @@ public class NoiseBubbleGrid : MonoBehaviour
     [Header("Bubble Placement")]
     [SerializeField] private float verticalOffset = 0.18f;
     [SerializeField] private bool snapToCellCenter = true;
+
+    [Header("Spawn / Despawn Animation")]
+    [Tooltip("Nova kugla se pri prvom pojavljivanju elegantno poveća od 0 do svoje vrijednosti.")]
+    [SerializeField] private bool animateBubbleSpawn = true;
+
+    [SerializeField] private float spawnDuration = 0.32f;
+
+    [Tooltip("Mali overshoot pri pojavljivanju, da kugla izgleda kao mekani balon.")]
+    [Range(0f, 0.35f)]
+    [SerializeField] private float spawnOvershoot = 0.12f;
+
+    [Tooltip("Kad kugla istekne nakon removeAfterSeconds, ne nestane odmah nego se smanji i izblijedi.")]
+    [SerializeField] private bool animateBubbleDespawn = true;
+
+    [SerializeField] private float despawnDuration = 0.35f;
+
+    [Tooltip("Kratki pojačani sjaj tijekom pojavljivanja nove kugle.")]
+    [SerializeField] private bool spawnGlowBoost = true;
+
+    [SerializeField] private float spawnGlowMultiplier = 1.8f;
 
     [Header("Active Bubble Pulse")]
     [Tooltip("Koliko dugo nakon zadnjeg mjerenja ćelija vrijedi kao aktualna.")]
@@ -176,6 +201,9 @@ public class NoiseBubbleGrid : MonoBehaviour
         historySeconds = Mathf.Max(1f, historySeconds);
         removeAfterSeconds = Mathf.Max(1f, removeAfterSeconds);
         activePulseTimeoutSeconds = Mathf.Max(0.05f, activePulseTimeoutSeconds);
+        spawnDuration = Mathf.Max(0.01f, spawnDuration);
+        despawnDuration = Mathf.Max(0.01f, despawnDuration);
+        spawnGlowMultiplier = Mathf.Max(1f, spawnGlowMultiplier);
 
         minBubbleDiameter = Mathf.Max(0.01f, minBubbleDiameter);
         maxBubbleDiameter = Mathf.Max(minBubbleDiameter, maxBubbleDiameter);
@@ -224,6 +252,7 @@ public class NoiseBubbleGrid : MonoBehaviour
 
         cellData.samples.Add(new NoiseSample(now, noiseDb));
         cellData.lastUpdateTime = now;
+        cellData.isDespawning = false;
 
         RemoveOldSamples(cellData);
 
@@ -332,7 +361,7 @@ public class NoiseBubbleGrid : MonoBehaviour
         {
             NoiseCellData cell = pair.Value;
 
-            if (cell == null || cell.bubbleObject == null)
+            if (cell == null || cell.bubbleObject == null || cell.isDespawning)
                 continue;
 
             Vector3 center = cell.bubbleObject.transform.position;
@@ -376,7 +405,7 @@ public class NoiseBubbleGrid : MonoBehaviour
         bubble.name = $"NoiseBubble_{gridX}_{gridY}";
         bubble.transform.SetParent(bubblesParent, true);
         bubble.transform.position = position;
-        bubble.transform.localScale = Vector3.one * minBubbleDiameter;
+        bubble.transform.localScale = animateBubbleSpawn ? Vector3.zero : Vector3.one * minBubbleDiameter;
 
         ApplyVisualizationLayerRecursively(bubble);
 
@@ -412,6 +441,10 @@ public class NoiseBubbleGrid : MonoBehaviour
             targetDiameter = minBubbleDiameter,
             currentDiameter = minBubbleDiameter,
             stableDisplayDiameter = minBubbleDiameter,
+            lastDisplayDiameter = minBubbleDiameter,
+            spawnStartTime = Time.time,
+            isDespawning = false,
+            despawnStartTime = -1f,
             lastUpdateTime = Time.time
         };
     }
@@ -426,8 +459,7 @@ public class NoiseBubbleGrid : MonoBehaviour
                 continue;
 
             float age = Time.time - cellData.lastUpdateTime;
-
-            bool isActiveCell = age <= activePulseTimeoutSeconds;
+            bool isActiveCell = age <= activePulseTimeoutSeconds && !cellData.isDespawning;
 
             cellData.currentDiameter = Mathf.Lerp(
                 cellData.currentDiameter,
@@ -445,7 +477,7 @@ public class NoiseBubbleGrid : MonoBehaviour
                 pulseSpeed = Mathf.Lerp(activeMinPulseSpeed, activeMaxPulseSpeed, normalized);
                 amplitude = Mathf.Lerp(activePulseAmplitude, activePulseAmplitudeAtMaxNoise, normalized);
             }
-            else if (animateInactiveBubbles)
+            else if (animateInactiveBubbles && !cellData.isDespawning)
             {
                 pulseSpeed = Mathf.Lerp(inactiveMinPulseSpeed, inactiveMaxPulseSpeed, normalized);
                 amplitude = Mathf.Lerp(inactivePulseAmplitude, inactivePulseAmplitudeAtMaxNoise, normalized);
@@ -471,11 +503,24 @@ public class NoiseBubbleGrid : MonoBehaviour
 
             float displayDiameter = Mathf.Max(0.01f, cellData.currentDiameter * pulse);
 
-            cellData.stableDisplayDiameter = cellData.currentDiameter;
-            cellData.bubbleObject.transform.localScale = Vector3.one * displayDiameter;
+            float spawnFactor = GetBubbleSpawnFactor(cellData);
+            float despawnFactor = GetBubbleDespawnFactor(cellData);
 
-            // RGB ostaje ista vrijednost buke, ali se alpha/emission razlikuju za active vs old.
-            UpdateBubbleMaterial(cellData, cellData.latestNoiseDb, isActiveCell);
+            float animatedDiameter = displayDiameter * spawnFactor * despawnFactor;
+            animatedDiameter = Mathf.Max(0.001f, animatedDiameter);
+
+            cellData.stableDisplayDiameter = cellData.currentDiameter;
+            cellData.lastDisplayDiameter = animatedDiameter;
+            cellData.bubbleObject.transform.localScale = Vector3.one * animatedDiameter;
+
+            float visualAlphaMultiplier = spawnFactor * despawnFactor;
+            float visualEmissionMultiplier = 1f;
+
+            if (spawnGlowBoost && animateBubbleSpawn && spawnFactor < 1f && !cellData.isDespawning)
+                visualEmissionMultiplier = Mathf.Lerp(spawnGlowMultiplier, 1f, spawnFactor);
+
+            // RGB ostaje ista vrijednost buke, ali alpha/emission nose stanje: nova / aktualna / stara / nestajanje.
+            UpdateBubbleMaterial(cellData, cellData.latestNoiseDb, isActiveCell, visualAlphaMultiplier, visualEmissionMultiplier);
         }
     }
 
@@ -492,11 +537,16 @@ public class NoiseBubbleGrid : MonoBehaviour
             bool isActiveCell = age <= activePulseTimeoutSeconds;
 
             cellData.targetDiameter = GetDiameterForNoise(cellData.latestNoiseDb);
-            UpdateBubbleMaterial(cellData, cellData.latestNoiseDb, isActiveCell);
+            UpdateBubbleMaterial(cellData, cellData.latestNoiseDb, isActiveCell, 1f, 1f);
         }
     }
 
-    private void UpdateBubbleMaterial(NoiseCellData cellData, float noiseDb, bool isActiveCell)
+    private void UpdateBubbleMaterial(
+        NoiseCellData cellData,
+        float noiseDb,
+        bool isActiveCell,
+        float visualAlphaMultiplier = 1f,
+        float visualEmissionMultiplier = 1f)
     {
         if (cellData == null || cellData.bubbleMaterial == null)
             return;
@@ -511,7 +561,7 @@ public class NoiseBubbleGrid : MonoBehaviour
             ? activeEmissionMultiplier
             : inactiveEmissionMultiplier;
 
-        color.a = bubbleAlpha * alphaMultiplier;
+        color.a = bubbleAlpha * alphaMultiplier * Mathf.Clamp01(visualAlphaMultiplier);
 
         if (cellData.bubbleMaterial.HasProperty("_BaseColor"))
             cellData.bubbleMaterial.SetColor("_BaseColor", color);
@@ -522,7 +572,7 @@ public class NoiseBubbleGrid : MonoBehaviour
         if (emissionIntensity > 0f && cellData.bubbleMaterial.HasProperty("_EmissionColor"))
         {
             cellData.bubbleMaterial.EnableKeyword("_EMISSION");
-            cellData.bubbleMaterial.SetColor("_EmissionColor", color * emissionIntensity * emissionMultiplier);
+            cellData.bubbleMaterial.SetColor("_EmissionColor", color * emissionIntensity * emissionMultiplier * visualEmissionMultiplier);
         }
     }
 
@@ -621,6 +671,15 @@ public class NoiseBubbleGrid : MonoBehaviour
             if (Time.time - cellData.lastUpdateTime <= removeAfterSeconds)
                 continue;
 
+            if (animateBubbleDespawn && !cellData.isDespawning)
+            {
+                StartBubbleDespawn(cellData);
+                continue;
+            }
+
+            if (cellData.isDespawning && Time.time - cellData.despawnStartTime < despawnDuration)
+                continue;
+
             if (toRemove == null)
                 toRemove = new List<Vector2Int>();
 
@@ -645,6 +704,60 @@ public class NoiseBubbleGrid : MonoBehaviour
                     Debug.Log($"NoiseBubbleGrid removed expired bubble at cell {key}");
             }
         }
+    }
+
+    private void StartBubbleDespawn(NoiseCellData cellData)
+    {
+        if (cellData == null || cellData.isDespawning)
+            return;
+
+        cellData.isDespawning = true;
+        cellData.despawnStartTime = Time.time;
+
+        if (cellData.bubbleCollider != null)
+            cellData.bubbleCollider.enabled = false;
+    }
+
+    private float GetBubbleSpawnFactor(NoiseCellData cellData)
+    {
+        if (!animateBubbleSpawn || cellData == null)
+            return 1f;
+
+        float t = Mathf.Clamp01((Time.time - cellData.spawnStartTime) / spawnDuration);
+
+        if (t >= 1f)
+            return 1f;
+
+        float eased = EaseOutBack(t);
+        float overshootLimited = Mathf.Lerp(1f, 1f + spawnOvershoot, Mathf.Sin(t * Mathf.PI));
+
+        return Mathf.Clamp(eased * overshootLimited, 0f, 1f + spawnOvershoot);
+    }
+
+    private float GetBubbleDespawnFactor(NoiseCellData cellData)
+    {
+        if (!animateBubbleDespawn || cellData == null || !cellData.isDespawning)
+            return 1f;
+
+        float t = Mathf.Clamp01((Time.time - cellData.despawnStartTime) / despawnDuration);
+        float eased = EaseInCubic(t);
+
+        return Mathf.Clamp01(1f - eased);
+    }
+
+    private float EaseOutBack(float t)
+    {
+        t = Mathf.Clamp01(t);
+        const float c1 = 1.70158f;
+        const float c3 = c1 + 1f;
+
+        return 1f + c3 * Mathf.Pow(t - 1f, 3f) + c1 * Mathf.Pow(t - 1f, 2f);
+    }
+
+    private float EaseInCubic(float t)
+    {
+        t = Mathf.Clamp01(t);
+        return t * t * t;
     }
 
     private Material CreateBubbleMaterial()

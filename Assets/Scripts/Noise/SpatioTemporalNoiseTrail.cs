@@ -93,6 +93,19 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
     [SerializeField] private bool rebuildEveryFrame = true;
     [SerializeField] private bool visible = true;
 
+    [Header("Visibility Animation")]
+    [Tooltip("Kad se vizualizacija vlage pali/gasi preko switchera, trail se lagano pojavljuje/nestaje umjesto instantnog enable/disable.")]
+    [SerializeField] private bool animateVisibilityChanges = true;
+
+    [SerializeField] private float visibilityFadeDuration = 0.35f;
+
+    [Tooltip("Tijekom pojavljivanja trail je malo tanji pa djeluje kao da izrasta iz putanje.")]
+    [Range(0.05f, 1f)]
+    [SerializeField] private float visibilityStartRadiusFactor = 0.35f;
+
+    [Tooltip("Ako je uključeno, collider traila se gasi odmah kad vizualizacija nestaje, da se ne može hoverati po nevidljivom objektu.")]
+    [SerializeField] private bool disableColliderWhileHidden = true;
+
     [Header("Physics / Hover")]
     [SerializeField] private bool createHoverMeshCollider = true;
 
@@ -160,6 +173,10 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
 
     private string externalGradientSignature = "";
 
+    private float visibilityAnimationValue = 1f;
+    private float visibilityAnimationTarget = 1f;
+    private float lastVisibilityAnimationValue = -1f;
+
     private void Reset()
     {
         noiseGradient = CreateDefaultNoiseGradient();
@@ -176,6 +193,7 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         timeTickRadius = Mathf.Max(0.005f, timeTickRadius);
         endFadeSeconds = Mathf.Max(0.1f, endFadeSeconds);
         maxVisualSegmentLength = Mathf.Max(0.01f, maxVisualSegmentLength);
+        visibilityFadeDuration = Mathf.Max(0.01f, visibilityFadeDuration);
 
         minNoiseDb = Mathf.Min(minNoiseDb, maxNoiseDb - 0.01f);
         maxNoiseDb = Mathf.Max(maxNoiseDb, minNoiseDb + 0.01f);
@@ -218,7 +236,14 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         if (useDefaultNoiseGradient || noiseGradient == null)
             noiseGradient = CreateDefaultNoiseGradient();
 
+        visibilityAnimationValue = visible ? 1f : 0f;
+        visibilityAnimationTarget = visibilityAnimationValue;
+        lastVisibilityAnimationValue = visibilityAnimationValue;
+
         meshRenderer.enabled = visible;
+
+        if (meshCollider != null)
+            meshCollider.enabled = visible || !disableColliderWhileHidden;
 
         CreateLabelRootIfNeeded();
         CreateTimeAxisMaterialIfNeeded();
@@ -227,8 +252,11 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
     private void Update()
     {
         RemoveOldSamples();
+        bool visibilityChangedThisFrame = UpdateVisibilityAnimation();
 
         if (rollingTimeWindow && rebuildEveryFrame)
+            RebuildMesh();
+        else if (visibilityChangedThisFrame)
             RebuildMesh();
 
         UpdateLabelsAndAxis();
@@ -272,14 +300,33 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
     public void SetVisible(bool isVisible)
     {
         visible = isVisible;
+        visibilityAnimationTarget = visible ? 1f : 0f;
 
-        if (meshRenderer != null)
-            meshRenderer.enabled = visible;
+        if (!animateVisibilityChanges)
+        {
+            visibilityAnimationValue = visibilityAnimationTarget;
+            lastVisibilityAnimationValue = visibilityAnimationValue;
+        }
+
+        if (meshRenderer != null && visible)
+            meshRenderer.enabled = true;
 
         if (meshCollider != null)
-            meshCollider.enabled = visible;
+            meshCollider.enabled = visible || !disableColliderWhileHidden;
 
-        SetLabelObjectsVisible(visible);
+        if (!visible && !animateVisibilityChanges)
+        {
+            if (meshRenderer != null)
+                meshRenderer.enabled = false;
+
+            SetLabelObjectsVisible(false);
+        }
+        else
+        {
+            SetLabelObjectsVisible(IsVisuallyVisible());
+        }
+
+        RebuildMesh();
     }
 
     public bool IsVisible()
@@ -291,7 +338,7 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
     {
         info = default;
 
-        if (samples.Count == 0)
+        if (samples.Count == 0 || !visible || visibilityAnimationValue <= 0.05f)
             return false;
 
         NoiseSample closestSample = null;
@@ -362,6 +409,47 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
             RebuildMesh();
     }
 
+    private bool UpdateVisibilityAnimation()
+    {
+        float previous = visibilityAnimationValue;
+
+        if (!animateVisibilityChanges)
+        {
+            visibilityAnimationValue = visibilityAnimationTarget;
+        }
+        else
+        {
+            float speed = 1f / Mathf.Max(0.01f, visibilityFadeDuration);
+            visibilityAnimationValue = Mathf.MoveTowards(
+                visibilityAnimationValue,
+                visibilityAnimationTarget,
+                Time.deltaTime * speed
+            );
+        }
+
+        if (meshRenderer != null)
+        {
+            if (visibilityAnimationValue > 0.001f)
+                meshRenderer.enabled = true;
+            else if (!visible)
+                meshRenderer.enabled = false;
+        }
+
+        if (meshCollider != null && disableColliderWhileHidden)
+            meshCollider.enabled = visible && visibilityAnimationValue > 0.95f;
+
+        bool changed = Mathf.Abs(previous - visibilityAnimationValue) > 0.0005f ||
+                       Mathf.Abs(lastVisibilityAnimationValue - visibilityAnimationValue) > 0.0005f;
+
+        lastVisibilityAnimationValue = visibilityAnimationValue;
+        return changed;
+    }
+
+    private bool IsVisuallyVisible()
+    {
+        return visibilityAnimationValue > 0.01f;
+    }
+
     private void RemoveOldSamples()
     {
         float now = Time.time;
@@ -420,12 +508,15 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         for (int i = 0; i < ringCount; i++)
         {
             float endFactor = GetSmoothEndFactor(visualPoints[i].time);
-            float ringRadius = tubeRadius * Mathf.Lerp(minimumEndRadiusFactor, 1f, endFactor);
+            float visibilityRadiusFactor = Mathf.Lerp(visibilityStartRadiusFactor, 1f, visibilityAnimationValue);
+            float ringRadius = tubeRadius * Mathf.Lerp(minimumEndRadiusFactor, 1f, endFactor) * visibilityRadiusFactor;
 
             Color sampleColor = GetNoiseColor(visualPoints[i].noiseDb);
 
             if (fadeAlphaAtEnds)
                 sampleColor.a *= Mathf.Lerp(minimumEndAlphaFactor, 1f, endFactor);
+
+            sampleColor.a *= visibilityAnimationValue;
 
             ringColors[i] = sampleColor;
 
@@ -898,7 +989,7 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
     {
         CreateLabelRootIfNeeded();
 
-        bool shouldShowAnything = visible && samples.Count > 0 && (showTimeLabels || showDateLabel || showTimeAxis);
+        bool shouldShowAnything = IsVisuallyVisible() && samples.Count > 0 && (showTimeLabels || showDateLabel || showTimeAxis);
 
         SetLabelObjectsVisible(shouldShowAnything);
 
@@ -1013,7 +1104,7 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
             labelObject.AddComponent<WorldLabelBillboard>();
         }
 
-        labelObject.SetActive(visible);
+        labelObject.SetActive(IsVisuallyVisible());
 
         labelObject.transform.position = worldPosition;
         labelObject.transform.localScale = Vector3.one;
@@ -1055,7 +1146,7 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
             timeAxisLine.numCornerVertices = 8;
         }
 
-        timeAxisObject.SetActive(visible && showTimeAxis);
+        timeAxisObject.SetActive(IsVisuallyVisible() && showTimeAxis);
 
         timeAxisLine.material = timeAxisMaterial;
         timeAxisLine.startColor = timeAxisColor;
@@ -1091,7 +1182,7 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
                 renderer.material = timeAxisMaterial;
         }
 
-        tickObject.SetActive(visible && showTimeAxis);
+        tickObject.SetActive(IsVisuallyVisible() && showTimeAxis);
         tickObject.transform.position = worldPosition;
         tickObject.transform.localScale = Vector3.one * timeTickRadius;
     }
