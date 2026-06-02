@@ -98,7 +98,10 @@ public class NoiseBubbleGrid : MonoBehaviour
     [SerializeField] private bool logAddedSamples = false;
     [SerializeField] private bool logRemovedBubbles = false;
 
-    private readonly Dictionary<Vector2Int, NoiseCellData> cells = new Dictionary<Vector2Int, NoiseCellData>();
+    private readonly Dictionary<Vector2Int, NoiseCellData> cells =
+        new Dictionary<Vector2Int, NoiseCellData>();
+
+    private string externalGradientSignature = "";
 
     public float MinNoiseDb => minNoiseDb;
     public float MaxNoiseDb => maxNoiseDb;
@@ -200,6 +203,43 @@ public class NoiseBubbleGrid : MonoBehaviour
                 $"world={worldPosition} | noise={noiseDb:F1} dBA | display={displayNoise:F1} dBA"
             );
         }
+    }
+
+    public void ApplyExternalNoiseGradient(
+        float minValue,
+        float maxValue,
+        Color lowColor,
+        Color middleColor,
+        Color highColor,
+        bool updateExistingBubblesImmediately = true)
+    {
+        minValue = Mathf.Min(minValue, maxValue - 0.01f);
+        maxValue = Mathf.Max(maxValue, minValue + 0.01f);
+
+        lowColor.a = 1f;
+        middleColor.a = 1f;
+        highColor.a = 1f;
+
+        string signature =
+            minValue.ToString("F3") + "|" +
+            maxValue.ToString("F3") + "|" +
+            ColorUtility.ToHtmlStringRGBA(lowColor) + "|" +
+            ColorUtility.ToHtmlStringRGBA(middleColor) + "|" +
+            ColorUtility.ToHtmlStringRGBA(highColor);
+
+        if (signature == externalGradientSignature)
+            return;
+
+        externalGradientSignature = signature;
+
+        minNoiseDb = minValue;
+        maxNoiseDb = maxValue;
+
+        useDefaultNoiseGradient = false;
+        noiseGradient = CreateThreeColorNoiseGradient(lowColor, middleColor, highColor);
+
+        if (updateExistingBubblesImmediately)
+            RefreshExistingBubbleVisuals();
     }
 
     public void ClearBubbles()
@@ -381,6 +421,20 @@ public class NoiseBubbleGrid : MonoBehaviour
         }
     }
 
+    private void RefreshExistingBubbleVisuals()
+    {
+        foreach (KeyValuePair<Vector2Int, NoiseCellData> pair in cells)
+        {
+            NoiseCellData cellData = pair.Value;
+
+            if (cellData == null)
+                continue;
+
+            cellData.targetDiameter = GetDiameterForNoise(cellData.latestNoiseDb);
+            UpdateBubbleMaterial(cellData, cellData.latestNoiseDb);
+        }
+    }
+
     private void UpdateBubbleMaterial(NoiseCellData cellData, float noiseDb)
     {
         if (cellData == null || cellData.bubbleMaterial == null)
@@ -548,17 +602,39 @@ public class NoiseBubbleGrid : MonoBehaviour
     {
         Gradient gradient = new Gradient();
 
-        GradientColorKey[] colorKeys = new GradientColorKey[]
+        GradientColorKey[] colorKeys =
         {
             new GradientColorKey(new Color(0.1f, 0.35f, 1f, 1f), 0f),
             new GradientColorKey(new Color(0.8f, 0.0f, 1f, 1f), 0.55f),
             new GradientColorKey(new Color(1f, 0.05f, 0.0f, 1f), 1f)
         };
 
-        GradientAlphaKey[] alphaKeys = new GradientAlphaKey[]
+        GradientAlphaKey[] alphaKeys =
         {
             new GradientAlphaKey(0.75f, 0f),
             new GradientAlphaKey(0.85f, 1f)
+        };
+
+        gradient.SetKeys(colorKeys, alphaKeys);
+        return gradient;
+    }
+
+    private Gradient CreateThreeColorNoiseGradient(Color lowColor, Color middleColor, Color highColor)
+    {
+        Gradient gradient = new Gradient();
+
+        GradientColorKey[] colorKeys =
+        {
+            new GradientColorKey(lowColor, 0f),
+            new GradientColorKey(middleColor, 0.5f),
+            new GradientColorKey(highColor, 1f)
+        };
+
+        GradientAlphaKey[] alphaKeys =
+        {
+            new GradientAlphaKey(0.75f, 0f),
+            new GradientAlphaKey(0.85f, 0.5f),
+            new GradientAlphaKey(1.00f, 1f)
         };
 
         gradient.SetKeys(colorKeys, alphaKeys);

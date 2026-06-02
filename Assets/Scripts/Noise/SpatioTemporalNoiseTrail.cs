@@ -158,6 +158,8 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
 
     private Material timeAxisMaterial;
 
+    private string externalGradientSignature = "";
+
     private void Reset()
     {
         noiseGradient = CreateDefaultNoiseGradient();
@@ -174,6 +176,9 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         timeTickRadius = Mathf.Max(0.005f, timeTickRadius);
         endFadeSeconds = Mathf.Max(0.1f, endFadeSeconds);
         maxVisualSegmentLength = Mathf.Max(0.01f, maxVisualSegmentLength);
+
+        minNoiseDb = Mathf.Min(minNoiseDb, maxNoiseDb - 0.01f);
+        maxNoiseDb = Mathf.Max(maxNoiseDb, minNoiseDb + 0.01f);
 
         if (useDefaultNoiseGradient)
             noiseGradient = CreateDefaultNoiseGradient();
@@ -246,7 +251,7 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         samples.Add(sample);
 
         if (logSamples)
-            Debug.Log($"NoiseTrail sample | pos={worldPosition}, noise={noiseDb:F1} dBA, count={samples.Count}");
+            Debug.Log($"NoiseTrail sample | pos={worldPosition}, value={noiseDb:F1}, count={samples.Count}");
 
         RemoveOldSamples();
         RebuildMesh();
@@ -318,6 +323,43 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         };
 
         return true;
+    }
+
+    public void ApplyExternalValueGradient(
+        float minValue,
+        float maxValue,
+        Color lowColor,
+        Color middleColor,
+        Color highColor,
+        bool rebuildImmediately = true)
+    {
+        minValue = Mathf.Min(minValue, maxValue - 0.01f);
+        maxValue = Mathf.Max(maxValue, minValue + 0.01f);
+
+        lowColor.a = 1f;
+        middleColor.a = 1f;
+        highColor.a = 1f;
+
+        string signature =
+            minValue.ToString("F3") + "|" +
+            maxValue.ToString("F3") + "|" +
+            ColorUtility.ToHtmlStringRGBA(lowColor) + "|" +
+            ColorUtility.ToHtmlStringRGBA(middleColor) + "|" +
+            ColorUtility.ToHtmlStringRGBA(highColor);
+
+        if (signature == externalGradientSignature)
+            return;
+
+        externalGradientSignature = signature;
+
+        minNoiseDb = minValue;
+        maxNoiseDb = maxValue;
+
+        useDefaultNoiseGradient = false;
+        noiseGradient = CreateThreeColorValueGradient(lowColor, middleColor, highColor);
+
+        if (rebuildImmediately)
+            RebuildMesh();
     }
 
     private void RemoveOldSamples()
@@ -767,6 +809,29 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
         {
             new GradientAlphaKey(0.65f, 0.00f),
             new GradientAlphaKey(0.85f, 0.50f),
+            new GradientAlphaKey(1.00f, 1.00f)
+        };
+
+        g.SetKeys(colorKeys, alphaKeys);
+
+        return g;
+    }
+
+    private Gradient CreateThreeColorValueGradient(Color lowColor, Color middleColor, Color highColor)
+    {
+        Gradient g = new Gradient();
+
+        GradientColorKey[] colorKeys =
+        {
+            new GradientColorKey(lowColor, 0.00f),
+            new GradientColorKey(middleColor, 0.50f),
+            new GradientColorKey(highColor, 1.00f)
+        };
+
+        GradientAlphaKey[] alphaKeys =
+        {
+            new GradientAlphaKey(0.85f, 0.00f),
+            new GradientAlphaKey(1.00f, 0.50f),
             new GradientAlphaKey(1.00f, 1.00f)
         };
 

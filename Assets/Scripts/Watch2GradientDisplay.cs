@@ -118,14 +118,14 @@ public class Watch2GradientDisplay : MonoBehaviour
         textureWidth = Mathf.Max(8, textureWidth);
         textureHeight = Mathf.Max(2, textureHeight);
 
+        fallbackMinNoiseDb = Mathf.Min(fallbackMinNoiseDb, fallbackMaxNoiseDb - 0.01f);
+        fallbackMaxNoiseDb = Mathf.Max(fallbackMaxNoiseDb, fallbackMinNoiseDb + 0.01f);
+
         minHumidityPercent = Mathf.Min(minHumidityPercent, maxHumidityPercent - 0.01f);
         maxHumidityPercent = Mathf.Max(maxHumidityPercent, minHumidityPercent + 0.01f);
 
         minCO2Ppm = Mathf.Min(minCO2Ppm, maxCO2Ppm - 1f);
         maxCO2Ppm = Mathf.Max(maxCO2Ppm, minCO2Ppm + 1f);
-
-        fallbackMinNoiseDb = Mathf.Min(fallbackMinNoiseDb, fallbackMaxNoiseDb - 0.01f);
-        fallbackMaxNoiseDb = Mathf.Max(fallbackMaxNoiseDb, fallbackMinNoiseDb + 0.01f);
 
         FindReferencesIfMissing();
         ForceRefresh();
@@ -280,13 +280,27 @@ public class Watch2GradientDisplay : MonoBehaviour
         float max = noiseBubbleGrid != null ? noiseBubbleGrid.MaxNoiseDb : fallbackMaxNoiseDb;
 
         Color lowColor = GetNoiseColor(min, min, max);
+        Color middleColor = GetNoiseColor((min + max) * 0.5f, min, max);
         Color highColor = GetNoiseColor(max, min, max);
+
+        if (noiseBubbleGrid != null)
+        {
+            noiseBubbleGrid.ApplyExternalNoiseGradient(
+                min,
+                max,
+                noiseLowColor,
+                noiseMiddleColor,
+                noiseHighColor,
+                true
+            );
+        }
 
         string signature =
             "NOISE_BUBBLE|" +
             min.ToString("F3") + "|" +
             max.ToString("F3") + "|" +
             ColorUtility.ToHtmlStringRGBA(lowColor) + "|" +
+            ColorUtility.ToHtmlStringRGBA(middleColor) + "|" +
             ColorUtility.ToHtmlStringRGBA(highColor);
 
         if (signature != lastSignature || lastMode != GradientMode.Noise)
@@ -310,13 +324,27 @@ public class Watch2GradientDisplay : MonoBehaviour
         float max = maxHumidityPercent;
 
         Color lowColor = GetHumidityColor(min);
+        Color middleColor = GetHumidityColor((min + max) * 0.5f);
         Color highColor = GetHumidityColor(max);
+
+        if (humidityTrail != null)
+        {
+            humidityTrail.ApplyExternalValueGradient(
+                min,
+                max,
+                humidityLowColor,
+                humidityMiddleColor,
+                humidityHighColor,
+                true
+            );
+        }
 
         string signature =
             "HUMIDITY|" +
             min.ToString("F3") + "|" +
             max.ToString("F3") + "|" +
             ColorUtility.ToHtmlStringRGBA(lowColor) + "|" +
+            ColorUtility.ToHtmlStringRGBA(middleColor) + "|" +
             ColorUtility.ToHtmlStringRGBA(highColor);
 
         if (signature != lastSignature || lastMode != GradientMode.Humidity)
@@ -340,6 +368,7 @@ public class Watch2GradientDisplay : MonoBehaviour
         float max = maxCO2Ppm;
 
         Color lowColor = GetCO2Color(min);
+        Color middleColor = GetCO2Color((min + max) * 0.5f);
         Color highColor = GetCO2Color(max);
 
         string signature =
@@ -347,6 +376,7 @@ public class Watch2GradientDisplay : MonoBehaviour
             min.ToString("F3") + "|" +
             max.ToString("F3") + "|" +
             ColorUtility.ToHtmlStringRGBA(lowColor) + "|" +
+            ColorUtility.ToHtmlStringRGBA(middleColor) + "|" +
             ColorUtility.ToHtmlStringRGBA(highColor);
 
         if (signature != lastSignature || lastMode != GradientMode.CO2)
