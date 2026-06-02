@@ -88,6 +88,10 @@ public class CO2GridLineGraph : MonoBehaviour
     [Tooltip("Fallback ako CO2 cursor nije spojen ili nema validnu ćeliju.")]
     [SerializeField] private Transform rayOrigin;
 
+    [Tooltip("Opcionalni filter koji sprječava otvaranje CO2 grafova izvan sobe ili preblizu zidu.")]
+    [SerializeField] private CellInteractionBounds interactionBounds;
+    [SerializeField] private bool useInteractionBounds = true;
+
     [SerializeField] private InputActionReference openGraphAction;
     [SerializeField] private float raycastDistance = 50f;
 
@@ -693,6 +697,16 @@ public class CO2GridLineGraph : MonoBehaviour
 
     private void ToggleOrCreateGraph(int gridX, int gridY)
     {
+        if (useInteractionBounds &&
+            interactionBounds != null &&
+            !interactionBounds.IsCO2CellAllowed(this, gridX, gridY))
+        {
+            if (logClicks)
+                Debug.Log($"CO2 line graph nije otvoren jer je ćelija izvan dopuštenog prostora ili preblizu zidu: ({gridX},{gridY})");
+
+            return;
+        }
+
         Vector2Int cell = new Vector2Int(gridX, gridY);
 
         if (openGraphs.TryGetValue(cell, out GraphInstance existing))
@@ -808,13 +822,27 @@ public class CO2GridLineGraph : MonoBehaviour
         }
     }
 
-    private GameObject BuildGraph(int gridX, int gridY, bool animate)
+    private Vector3 GetGraphAnchorWorld(int gridX, int gridY)
     {
         Vector3 cellCenter = GetCellCenterWorld(gridX, gridY);
 
+        if (useInteractionBounds &&
+            interactionBounds != null &&
+            interactionBounds.TryGetSafeCO2GraphAnchor(this, gridX, gridY, graphWidth * 0.65f, out Vector3 safeAnchor))
+        {
+            return safeAnchor;
+        }
+
+        return cellCenter;
+    }
+
+    private GameObject BuildGraph(int gridX, int gridY, bool animate)
+    {
+        Vector3 graphAnchor = GetGraphAnchorWorld(gridX, gridY);
+
         GameObject root = new GameObject($"CO2LineGraphRoot_{gridX}_{gridY}");
         root.transform.SetParent(graphParent, true);
-        root.transform.position = cellCenter + Vector3.up * graphVerticalOffset;
+        root.transform.position = graphAnchor + Vector3.up * graphVerticalOffset;
 
         root.AddComponent<WorldLabelBillboard>();
         SetVisualizationLayerRecursively(root);

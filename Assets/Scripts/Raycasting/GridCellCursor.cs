@@ -7,6 +7,11 @@ public class GridCellCursor : MonoBehaviour
     [Header("References")]
     [SerializeField] private ShaderGridHeatmap heatmap;
 
+    [Header("Room / Interaction Bounds")]
+    [Tooltip("Opcionalni filter koji sprječava ciljanje ćelija izvan sobe. Za temperaturu dopušta djelomične rubne ćelije.")]
+    [SerializeField] private CellInteractionBounds interactionBounds;
+    [SerializeField] private bool useInteractionBounds = true;
+
     [Header("Interactor References")]
     [SerializeField] private NearFarInteractor rightControllerNearFarInteractor;
     [SerializeField] private NearFarInteractor rightHandNearFarInteractor;
@@ -138,6 +143,15 @@ public class GridCellCursor : MonoBehaviour
         {
             if (heatmap.TryGetCellIndex(hit.point, out int gridX, out int gridY))
             {
+                if (useInteractionBounds &&
+                    interactionBounds != null &&
+                    !interactionBounds.IsTemperatureCellAllowed(heatmap, gridX, gridY))
+                {
+                    HideCursor();
+                    HideAverageTemperatureTooltip();
+                    return;
+                }
+
                 currentCell = new Vector2Int(gridX, gridY);
                 currentCellCenterWorld = heatmap.GetCellCenterWorld(gridX, gridY);
                 hasValidCell = true;

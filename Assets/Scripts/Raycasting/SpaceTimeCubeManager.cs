@@ -16,6 +16,11 @@ public class SpaceTimeCubeManager : MonoBehaviour
     [SerializeField] private ShaderGridHeatmap heatmap;
     [SerializeField] private GridCellCursor gridCellCursor;
 
+    [Header("Room / Interaction Bounds")]
+    [Tooltip("Opcionalni filter koji sprječava otvaranje stupaca izvan sobe. Koristi isto kao GridCellCursor.")]
+    [SerializeField] private CellInteractionBounds interactionBounds;
+    [SerializeField] private bool useInteractionBounds = true;
+
     [Header("Input")]
     [SerializeField] private InputActionReference placeColumnAction;
 
@@ -127,11 +132,28 @@ public class SpaceTimeCubeManager : MonoBehaviour
         }
 
         Vector2Int cell = gridCellCursor.CurrentCell;
+
+        if (useInteractionBounds &&
+            interactionBounds != null &&
+            !interactionBounds.IsTemperatureCellAllowed(heatmap, cell.x, cell.y))
+        {
+            Debug.Log($"Space-Time stupac nije otvoren jer je ćelija izvan dopuštenog prostora: ({cell.x}, {cell.y})");
+            return;
+        }
+
         ToggleOrCreateColumn(cell.x, cell.y);
     }
 
     private void ToggleOrCreateColumn(int gridX, int gridY)
     {
+        if (useInteractionBounds &&
+            interactionBounds != null &&
+            !interactionBounds.IsTemperatureCellAllowed(heatmap, gridX, gridY))
+        {
+            Debug.Log($"Space-Time stupac nije otvoren jer je ćelija izvan dopuštenog prostora: ({gridX}, {gridY})");
+            return;
+        }
+
         Vector2Int cell = new Vector2Int(gridX, gridY);
 
         if (openColumns.TryGetValue(cell, out ColumnInstance existingColumn))

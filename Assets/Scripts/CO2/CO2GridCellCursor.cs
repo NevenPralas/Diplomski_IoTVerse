@@ -7,6 +7,11 @@ public class CO2GridCellCursor : MonoBehaviour
     [SerializeField] private CO2GridLineGraph co2Grid;
     [SerializeField] private SwitcherSensor switcherSensor;
 
+    [Header("Room / Interaction Bounds")]
+    [Tooltip("Opcionalni filter koji sprječava ciljanje CO2 ćelija izvan sobe ili preblizu zidu.")]
+    [SerializeField] private CellInteractionBounds interactionBounds;
+    [SerializeField] private bool useInteractionBounds = true;
+
     [Header("Interactor References")]
     [SerializeField] private NearFarInteractor rightControllerNearFarInteractor;
     [SerializeField] private NearFarInteractor rightHandNearFarInteractor;
@@ -223,6 +228,14 @@ public class CO2GridCellCursor : MonoBehaviour
         }
 
         if (!showOnEmptyCells && !co2Grid.TryGetDisplayedCO2ForCell(gridX, gridY, out _))
+        {
+            HideCursor();
+            return;
+        }
+
+        if (useInteractionBounds &&
+            interactionBounds != null &&
+            !interactionBounds.IsCO2CellAllowed(co2Grid, gridX, gridY))
         {
             HideCursor();
             return;
