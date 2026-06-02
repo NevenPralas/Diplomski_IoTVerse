@@ -59,6 +59,7 @@ public class SpaceTimeCubeManager : MonoBehaviour
 
     [Header("Audio")]
     [SerializeField] private AudioClip spawnSound;
+    [SerializeField] private AudioClip despawnSound;
     [SerializeField] private AudioSource audioSource;
 
     [Header("Multiple Columns")]
@@ -204,7 +205,11 @@ public class SpaceTimeCubeManager : MonoBehaviour
         if (openColumns.TryGetValue(cell, out ColumnInstance instance))
         {
             if (instance.root != null)
+            {
+                Vector3 soundPosition = instance.root.transform.position + Vector3.up * (cubeHeight * 0.5f);
+                PlayDespawnSound(soundPosition);
                 Destroy(instance.root);
+            }
 
             openColumns.Remove(cell);
         }
@@ -600,5 +605,16 @@ public class SpaceTimeCubeManager : MonoBehaviour
             audioSource.PlayOneShot(spawnSound);
         else
             AudioSource.PlayClipAtPoint(spawnSound, position);
+    }
+
+    private void PlayDespawnSound(Vector3 position)
+    {
+        if (despawnSound == null)
+            return;
+
+        if (audioSource != null)
+            audioSource.PlayOneShot(despawnSound);
+        else
+            AudioSource.PlayClipAtPoint(despawnSound, position);
     }
 }

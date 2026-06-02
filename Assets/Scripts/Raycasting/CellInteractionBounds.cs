@@ -1,269 +1,435 @@
-﻿using UnityEngine;
+﻿using System.Collections.Generic;
+using UnityEngine;
 
 public class CellInteractionBounds : MonoBehaviour
 {
-    public enum CellCheckMode
-    {
-        TemperatureSpaceTimeCube,
-        CO2LineGraph
-    }
-
     [Header("Allowed Room Area")]
-    [Tooltip("Dodaj jedan ili više BoxCollidera koji pokrivaju stvarni prostor sobe u kojem smiješ otvarati vizualizacije. Najbolje: jedan trigger BoxCollider preko poda/sobe.")]
-    [SerializeField] private Collider[] allowedAreaColliders;
-
-    [Tooltip("Ako nema nijedan collider u listi, sve ćelije se dopuštaju da ti projekt ne pukne dok ne spojiš bounds.")]
+    [SerializeField] private List<Collider> allowedAreaColliders = new List<Collider>();
     [SerializeField] private bool allowAllWhenNoBoundsAssigned = true;
 
     [Header("Temperature Cell Rule")]
-    [Tooltip("Za temperaturu je dopušteno da je ćelija djelomično u sobi. 0.20 znači da barem oko 20% sample točaka ćelije mora biti unutar Allowed Room Area.")]
     [Range(0f, 1f)]
     [SerializeField] private float minInsideFractionForTemperature = 0.20f;
 
     [Header("CO2 Cell Rule")]
-    [Tooltip("Za CO2 line graph preporuka je strože pravilo jer se canvas lako sakrije iza zida. 1.0 znači da cijela ćelija mora biti unutar Allowed Room Area.")]
+    [Tooltip("Koliki dio CO2 ćelije mora biti unutar sobe da bi se smjela kliknuti. Za djelomične ćelije stavi 0.15-0.25.")]
     [Range(0f, 1f)]
-    [SerializeField] private float minInsideFractionForCO2 = 1.0f;
+    [SerializeField] private float minInsideFractionForCO2 = 0.20f;
 
-    [Tooltip("Ako je uključeno, centar CO2 ćelije mora biti unutar sobe.")]
-    [SerializeField] private bool requireCO2CellCenterInside = true;
+    [Tooltip("Ako je true, centar CO2 ćelije mora biti unutar sobe. Za dopuštanje djelomičnih ćelija treba biti false.")]
+    [SerializeField] private bool requireCO2CellCenterInside = false;
 
-    [Tooltip("Ako je uključeno, za CO2 se provjerava i dodatni margin oko centra da graf ne bude preblizu zidu.")]
-    [SerializeField] private bool requireExtraCO2GraphClearance = true;
+    [Header("CO2 Graph Anchor Adjustment")]
+    [Tooltip("Ako je true, CO2 graf za rubne/djelomične ćelije pomiče se na sigurnu vidljivu poziciju unutar sobe.")]
+    [SerializeField] private bool adjustCO2GraphAnchor = true;
 
-    [Tooltip("Minimalni horizontalni razmak od zida za CO2 graf. Povećaj ako graf i dalje ulazi u zid.")]
+    [Tooltip("Koliko graf pokušava biti udaljen od zida. Ovo ne odbija ćeliju, nego traži bolji anchor.")]
     [SerializeField] private float co2GraphClearanceMeters = 0.35f;
 
+    [Tooltip("Ako je ćelija skoro potpuno unutar sobe, graf ostaje u centru ćelije.")]
+    [Range(0.80f, 1f)]
+    [SerializeField] private float fullCellInsideFraction = 0.98f;
+
     [Header("Sampling")]
-    [Tooltip("0.49 znači skoro rub ćelije. Nemoj staviti 0.5 jer može biti točno na granici collidersa.")]
-    [Range(0.1f, 0.49f)]
+    [Tooltip("Koliko gusto se uzorkuje ćelija. 7 je dobar balans.")]
+    [Range(3, 15)]
+    [SerializeField] private int sampleResolution = 7;
+
+    [Tooltip("0.46 znači da se uzorkuje skoro cijela ćelija, ali ne baš sama granica.")]
+    [Range(0.1f, 0.5f)]
     [SerializeField] private float sampleExtent = 0.46f;
 
     [Header("Debug")]
     [SerializeField] private bool debugRejectedCells = false;
+    [SerializeField] private bool debugGraphAnchors = false;
+
+    private void OnValidate()
+    {
+        minInsideFractionForTemperature = Mathf.Clamp01(minInsideFractionForTemperature);
+        minInsideFractionForCO2 = Mathf.Clamp01(minInsideFractionForCO2);
+
+        co2GraphClearanceMeters = Mathf.Max(0f, co2GraphClearanceMeters);
+        sampleResolution = Mathf.Clamp(sampleResolution, 3, 15);
+        sampleExtent = Mathf.Clamp(sampleExtent, 0.1f, 0.5f);
+        fullCellInsideFraction = Mathf.Clamp(fullCellInsideFraction, 0.8f, 1f);
+    }
+
+    // ============================================================
+    // TEMPERATURE API - NOVI NACIN
+    // ============================================================
+
+    public bool IsTemperatureCellAllowed(Vector3 cellCenter, float cellWidth, float cellHeight)
+    {
+        if (!HasAnyValidCollider())
+            return allowAllWhenNoBoundsAssigned;
+
+        float insideFraction = GetInsideFractionXZ(cellCenter, cellWidth, cellHeight);
+        bool allowed = insideFraction >= minInsideFractionForTemperature;
+
+        if (!allowed && debugRejectedCells)
+        {
+            Debug.Log(
+                $"Temperature cell rejected. insideFraction={insideFraction:F2}, required={minInsideFractionForTemperature:F2}"
+            );
+        }
+
+        return allowed;
+    }
+
+    // ============================================================
+    // TEMPERATURE API - STARI NACIN / BACKWARD COMPATIBILITY
+    // Ovo rjesava greske u GridCellCursor.cs i SpaceTimeCubeManager.cs
+    // ============================================================
 
     public bool IsTemperatureCellAllowed(ShaderGridHeatmap heatmap, int gridX, int gridY)
     {
         if (heatmap == null)
             return false;
 
-        Vector3 center = heatmap.GetCellCenterWorld(gridX, gridY);
-        float cellW = heatmap.GetCellWidth();
-        float cellH = heatmap.GetCellHeight();
+        Vector3 cellCenter = heatmap.GetCellCenterWorld(gridX, gridY);
+        float cellWidth = heatmap.GetCellWidth();
+        float cellHeight = heatmap.GetCellHeight();
 
-        bool allowed = IsCellAllowed(center, cellW, cellH, minInsideFractionForTemperature, false, 0f);
-
-        if (!allowed && debugRejectedCells)
-            Debug.Log($"Temperature cell rejected by room bounds: ({gridX}, {gridY})");
-
-        return allowed;
+        return IsTemperatureCellAllowed(cellCenter, cellWidth, cellHeight);
     }
+
+    // ============================================================
+    // CO2 API - NOVI NACIN
+    // ============================================================
+
+    public bool IsCO2CellAllowed(Vector3 cellCenter, float cellWidth, float cellHeight)
+    {
+        if (!HasAnyValidCollider())
+            return allowAllWhenNoBoundsAssigned;
+
+        float insideFraction = GetInsideFractionXZ(cellCenter, cellWidth, cellHeight);
+
+        if (insideFraction < minInsideFractionForCO2)
+        {
+            if (debugRejectedCells)
+            {
+                Debug.Log(
+                    $"CO2 cell rejected. insideFraction={insideFraction:F2}, required={minInsideFractionForCO2:F2}"
+                );
+            }
+
+            return false;
+        }
+
+        if (requireCO2CellCenterInside && !IsPointInsideAllowedAreaXZ(cellCenter))
+        {
+            if (debugRejectedCells)
+                Debug.Log("CO2 cell rejected because center is outside room bounds.");
+
+            return false;
+        }
+
+        return true;
+    }
+
+    // ============================================================
+    // CO2 API - STARI NACIN / BACKWARD COMPATIBILITY
+    // Ovo rjesava gresku u CO2GridCellCursor.cs
+    // ============================================================
 
     public bool IsCO2CellAllowed(CO2GridLineGraph co2Grid, int gridX, int gridY)
     {
         if (co2Grid == null)
             return false;
 
-        Vector3 center = co2Grid.GetCellCenterWorld(gridX, gridY);
-        float cellW = co2Grid.GetCellWidth();
-        float cellH = co2Grid.GetCellHeight();
+        Vector3 cellCenter = co2Grid.GetCellCenterWorld(gridX, gridY);
+        float cellWidth = co2Grid.GetCellWidth();
+        float cellHeight = co2Grid.GetCellHeight();
 
-        float clearance = requireExtraCO2GraphClearance ? co2GraphClearanceMeters : 0f;
-
-        bool allowed = IsCellAllowed(
-            center,
-            cellW,
-            cellH,
-            minInsideFractionForCO2,
-            requireCO2CellCenterInside,
-            clearance
-        );
-
-        if (!allowed && debugRejectedCells)
-            Debug.Log($"CO2 cell rejected by room bounds: ({gridX}, {gridY})");
-
-        return allowed;
+        return IsCO2CellAllowed(cellCenter, cellWidth, cellHeight);
     }
 
-    public bool TryGetSafeCO2GraphAnchor(
-        CO2GridLineGraph co2Grid,
-        int gridX,
-        int gridY,
-        float graphHorizontalClearance,
-        out Vector3 safeAnchor)
+    // ============================================================
+    // CO2 GRAPH ANCHOR - NOVI NACIN
+    // ============================================================
+
+    public bool TryGetCO2GraphAnchor(
+        Vector3 cellCenter,
+        float cellWidth,
+        float cellHeight,
+        out Vector3 graphAnchor)
     {
-        safeAnchor = co2Grid != null
-            ? co2Grid.GetCellCenterWorld(gridX, gridY)
-            : Vector3.zero;
+        graphAnchor = cellCenter;
 
-        if (!HasBounds())
+        if (!HasAnyValidCollider())
+            return allowAllWhenNoBoundsAssigned;
+
+        if (!IsCO2CellAllowed(cellCenter, cellWidth, cellHeight))
             return false;
 
-        BoxCollider bestBox = FindContainingOrClosestBox(safeAnchor);
+        if (!adjustCO2GraphAnchor)
+        {
+            graphAnchor = cellCenter;
+            return true;
+        }
 
-        if (bestBox == null)
-            return false;
+        float insideFraction = GetInsideFractionXZ(cellCenter, cellWidth, cellHeight);
+        bool centerInside = IsPointInsideAllowedAreaXZ(cellCenter);
+        bool centerHasClearance = GetBestClearanceXZ(cellCenter) >= co2GraphClearanceMeters;
 
-        float clearance = Mathf.Max(co2GraphClearanceMeters, graphHorizontalClearance);
+        bool canUseOriginalCenter =
+            insideFraction >= fullCellInsideFraction &&
+            centerInside &&
+            centerHasClearance;
 
-        safeAnchor = ClampPointInsideBoxXZ(bestBox, safeAnchor, clearance);
+        if (canUseOriginalCenter)
+        {
+            graphAnchor = cellCenter;
+            return true;
+        }
+
+        if (TryFindBestInteriorAnchor(cellCenter, cellWidth, cellHeight, out Vector3 adjustedAnchor))
+        {
+            graphAnchor = adjustedAnchor;
+            graphAnchor.y = cellCenter.y;
+
+            if (debugGraphAnchors)
+            {
+                Debug.DrawLine(
+                    cellCenter + Vector3.up * 0.05f,
+                    graphAnchor + Vector3.up * 0.05f,
+                    Color.yellow,
+                    1.5f
+                );
+
+                Debug.Log($"CO2 graph anchor adjusted from {cellCenter} to {graphAnchor}");
+            }
+
+            return true;
+        }
+
+        graphAnchor = cellCenter;
         return true;
     }
 
-    private bool IsCellAllowed(
-        Vector3 center,
-        float cellW,
-        float cellH,
-        float requiredInsideFraction,
-        bool requireCenterInside,
-        float extraClearance)
-    {
-        if (!HasBounds())
-            return allowAllWhenNoBoundsAssigned;
+    // ============================================================
+    // CO2 GRAPH ANCHOR - STARI NACIN / BACKWARD COMPATIBILITY
+    // Ako negdje imas poziv s co2Grid, gridX, gridY, i to ce raditi.
+    // ============================================================
 
-        if (requireCenterInside && !IsPointInsideAnyAllowedArea(center))
+    public bool TryGetCO2GraphAnchor(
+        CO2GridLineGraph co2Grid,
+        int gridX,
+        int gridY,
+        out Vector3 graphAnchor)
+    {
+        graphAnchor = Vector3.zero;
+
+        if (co2Grid == null)
             return false;
+
+        Vector3 cellCenter = co2Grid.GetCellCenterWorld(gridX, gridY);
+        float cellWidth = co2Grid.GetCellWidth();
+        float cellHeight = co2Grid.GetCellHeight();
+
+        return TryGetCO2GraphAnchor(cellCenter, cellWidth, cellHeight, out graphAnchor);
+    }
+
+    // ============================================================
+    // INTERNAL SAMPLING
+    // ============================================================
+
+    private bool TryFindBestInteriorAnchor(
+        Vector3 cellCenter,
+        float cellWidth,
+        float cellHeight,
+        out Vector3 bestPoint)
+    {
+        bestPoint = cellCenter;
+
+        bool found = false;
+        float bestScore = float.NegativeInfinity;
+
+        int resolution = Mathf.Max(3, sampleResolution);
+
+        for (int ix = 0; ix < resolution; ix++)
+        {
+            float tx = resolution == 1 ? 0.5f : ix / (float)(resolution - 1);
+            float offsetX = Mathf.Lerp(-cellWidth * sampleExtent, cellWidth * sampleExtent, tx);
+
+            for (int iz = 0; iz < resolution; iz++)
+            {
+                float tz = resolution == 1 ? 0.5f : iz / (float)(resolution - 1);
+                float offsetZ = Mathf.Lerp(-cellHeight * sampleExtent, cellHeight * sampleExtent, tz);
+
+                Vector3 p = new Vector3(
+                    cellCenter.x + offsetX,
+                    cellCenter.y,
+                    cellCenter.z + offsetZ
+                );
+
+                if (!IsPointInsideAllowedAreaXZ(p))
+                    continue;
+
+                float clearance = GetBestClearanceXZ(p);
+
+                float distancePenalty = Vector3.Distance(
+                    new Vector3(cellCenter.x, 0f, cellCenter.z),
+                    new Vector3(p.x, 0f, p.z)
+                ) * 0.15f;
+
+                float score = clearance - distancePenalty;
+
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestPoint = p;
+                    found = true;
+                }
+            }
+        }
+
+        return found;
+    }
+
+    private float GetInsideFractionXZ(Vector3 cellCenter, float cellWidth, float cellHeight)
+    {
+        if (!HasAnyValidCollider())
+            return allowAllWhenNoBoundsAssigned ? 1f : 0f;
 
         int insideCount = 0;
         int totalCount = 0;
 
-        float dx = cellW * sampleExtent;
-        float dz = cellH * sampleExtent;
+        int resolution = Mathf.Max(3, sampleResolution);
 
-        Sample(center, ref insideCount, ref totalCount);
-        Sample(center + new Vector3(-dx, 0f, -dz), ref insideCount, ref totalCount);
-        Sample(center + new Vector3(-dx, 0f, dz), ref insideCount, ref totalCount);
-        Sample(center + new Vector3(dx, 0f, -dz), ref insideCount, ref totalCount);
-        Sample(center + new Vector3(dx, 0f, dz), ref insideCount, ref totalCount);
-        Sample(center + new Vector3(-dx, 0f, 0f), ref insideCount, ref totalCount);
-        Sample(center + new Vector3(dx, 0f, 0f), ref insideCount, ref totalCount);
-        Sample(center + new Vector3(0f, 0f, -dz), ref insideCount, ref totalCount);
-        Sample(center + new Vector3(0f, 0f, dz), ref insideCount, ref totalCount);
-
-        float fraction = totalCount <= 0 ? 0f : insideCount / (float)totalCount;
-
-        if (fraction + 0.0001f < requiredInsideFraction)
-            return false;
-
-        if (extraClearance > 0f)
+        for (int ix = 0; ix < resolution; ix++)
         {
-            if (!IsPointInsideAnyAllowedArea(center + new Vector3(extraClearance, 0f, 0f)))
-                return false;
+            float tx = resolution == 1 ? 0.5f : ix / (float)(resolution - 1);
+            float offsetX = Mathf.Lerp(-cellWidth * sampleExtent, cellWidth * sampleExtent, tx);
 
-            if (!IsPointInsideAnyAllowedArea(center + new Vector3(-extraClearance, 0f, 0f)))
-                return false;
+            for (int iz = 0; iz < resolution; iz++)
+            {
+                float tz = resolution == 1 ? 0.5f : iz / (float)(resolution - 1);
+                float offsetZ = Mathf.Lerp(-cellHeight * sampleExtent, cellHeight * sampleExtent, tz);
 
-            if (!IsPointInsideAnyAllowedArea(center + new Vector3(0f, 0f, extraClearance)))
-                return false;
+                Vector3 p = new Vector3(
+                    cellCenter.x + offsetX,
+                    cellCenter.y,
+                    cellCenter.z + offsetZ
+                );
 
-            if (!IsPointInsideAnyAllowedArea(center + new Vector3(0f, 0f, -extraClearance)))
-                return false;
+                totalCount++;
+
+                if (IsPointInsideAllowedAreaXZ(p))
+                    insideCount++;
+            }
         }
 
-        return true;
+        if (totalCount == 0)
+            return 0f;
+
+        return insideCount / (float)totalCount;
     }
 
-    private void Sample(Vector3 point, ref int insideCount, ref int totalCount)
+    private bool IsPointInsideAllowedAreaXZ(Vector3 point)
     {
-        totalCount++;
-
-        if (IsPointInsideAnyAllowedArea(point))
-            insideCount++;
-    }
-
-    public bool IsPointInsideAnyAllowedArea(Vector3 point)
-    {
-        if (!HasBounds())
-            return allowAllWhenNoBoundsAssigned;
-
-        for (int i = 0; i < allowedAreaColliders.Length; i++)
+        for (int i = 0; i < allowedAreaColliders.Count; i++)
         {
-            Collider col = allowedAreaColliders[i];
+            Collider c = allowedAreaColliders[i];
 
-            if (col == null)
+            if (c == null)
                 continue;
 
-            if (IsPointInsideCollider(col, point))
+            if (IsPointInsideColliderXZ(c, point))
                 return true;
         }
 
         return false;
     }
 
-    private bool IsPointInsideCollider(Collider col, Vector3 point)
+    private bool IsPointInsideColliderXZ(Collider collider, Vector3 worldPoint)
     {
-        if (col is BoxCollider box)
-            return IsPointInsideBox(box, point);
+        BoxCollider box = collider as BoxCollider;
 
-        Vector3 closest = col.ClosestPoint(point);
-        return (closest - point).sqrMagnitude < 0.000001f;
+        if (box != null)
+        {
+            Vector3 local = box.transform.InverseTransformPoint(worldPoint) - box.center;
+            Vector3 half = box.size * 0.5f;
+
+            return Mathf.Abs(local.x) <= half.x &&
+                   Mathf.Abs(local.z) <= half.z;
+        }
+
+        Bounds b = collider.bounds;
+
+        return worldPoint.x >= b.min.x &&
+               worldPoint.x <= b.max.x &&
+               worldPoint.z >= b.min.z &&
+               worldPoint.z <= b.max.z;
     }
 
-    private bool IsPointInsideBox(BoxCollider box, Vector3 worldPoint)
+    private float GetBestClearanceXZ(Vector3 point)
     {
-        Vector3 local = box.transform.InverseTransformPoint(worldPoint) - box.center;
-        Vector3 half = box.size * 0.5f;
+        float best = 0f;
 
-        return Mathf.Abs(local.x) <= half.x &&
-               Mathf.Abs(local.y) <= half.y &&
-               Mathf.Abs(local.z) <= half.z;
+        for (int i = 0; i < allowedAreaColliders.Count; i++)
+        {
+            Collider c = allowedAreaColliders[i];
+
+            if (c == null)
+                continue;
+
+            if (!IsPointInsideColliderXZ(c, point))
+                continue;
+
+            float clearance = GetClearanceInsideColliderXZ(c, point);
+
+            if (clearance > best)
+                best = clearance;
+        }
+
+        return best;
     }
 
-    private bool HasBounds()
+    private float GetClearanceInsideColliderXZ(Collider collider, Vector3 worldPoint)
     {
-        if (allowedAreaColliders == null || allowedAreaColliders.Length == 0)
-            return false;
+        BoxCollider box = collider as BoxCollider;
 
-        for (int i = 0; i < allowedAreaColliders.Length; i++)
+        if (box != null)
+        {
+            Vector3 local = box.transform.InverseTransformPoint(worldPoint) - box.center;
+            Vector3 half = box.size * 0.5f;
+
+            float localClearanceX = half.x - Mathf.Abs(local.x);
+            float localClearanceZ = half.z - Mathf.Abs(local.z);
+
+            float scaleX = Mathf.Abs(box.transform.lossyScale.x);
+            float scaleZ = Mathf.Abs(box.transform.lossyScale.z);
+
+            float worldClearanceX = localClearanceX * scaleX;
+            float worldClearanceZ = localClearanceZ * scaleZ;
+
+            return Mathf.Max(0f, Mathf.Min(worldClearanceX, worldClearanceZ));
+        }
+
+        Bounds b = collider.bounds;
+
+        float clearanceX = Mathf.Min(
+            Mathf.Abs(worldPoint.x - b.min.x),
+            Mathf.Abs(b.max.x - worldPoint.x)
+        );
+
+        float clearanceZ = Mathf.Min(
+            Mathf.Abs(worldPoint.z - b.min.z),
+            Mathf.Abs(b.max.z - worldPoint.z)
+        );
+
+        return Mathf.Max(0f, Mathf.Min(clearanceX, clearanceZ));
+    }
+
+    private bool HasAnyValidCollider()
+    {
+        for (int i = 0; i < allowedAreaColliders.Count; i++)
         {
             if (allowedAreaColliders[i] != null)
                 return true;
         }
 
         return false;
-    }
-
-    private BoxCollider FindContainingOrClosestBox(Vector3 point)
-    {
-        BoxCollider bestBox = null;
-        float bestDistanceSqr = float.MaxValue;
-
-        for (int i = 0; i < allowedAreaColliders.Length; i++)
-        {
-            BoxCollider box = allowedAreaColliders[i] as BoxCollider;
-
-            if (box == null)
-                continue;
-
-            if (IsPointInsideBox(box, point))
-                return box;
-
-            Vector3 closest = box.ClosestPoint(point);
-            float distanceSqr = (closest - point).sqrMagnitude;
-
-            if (distanceSqr < bestDistanceSqr)
-            {
-                bestDistanceSqr = distanceSqr;
-                bestBox = box;
-            }
-        }
-
-        return bestBox;
-    }
-
-    private Vector3 ClampPointInsideBoxXZ(BoxCollider box, Vector3 worldPoint, float margin)
-    {
-        Vector3 local = box.transform.InverseTransformPoint(worldPoint);
-        Vector3 localCenterRelative = local - box.center;
-        Vector3 half = box.size * 0.5f;
-
-        float safeX = Mathf.Max(0.01f, half.x - margin);
-        float safeZ = Mathf.Max(0.01f, half.z - margin);
-
-        localCenterRelative.x = Mathf.Clamp(localCenterRelative.x, -safeX, safeX);
-        localCenterRelative.z = Mathf.Clamp(localCenterRelative.z, -safeZ, safeZ);
-
-        Vector3 clampedLocal = box.center + localCenterRelative;
-        return box.transform.TransformPoint(clampedLocal);
     }
 }

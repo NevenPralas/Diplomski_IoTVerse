@@ -46,13 +46,8 @@ public class CO2GridLineGraph : MonoBehaviour
     [SerializeField] private float minCO2Ppm = 400f;
     [SerializeField] private float maxCO2Ppm = 2000f;
 
-    [Tooltip("Postavi isto kao CO2 Low Color na Watch gradientu.")]
     [SerializeField] private Color lowCO2Color = new Color(0.10f, 0.75f, 0.25f, 0.85f);
-
-    [Tooltip("Postavi isto kao CO2 Middle Color na Watch gradientu.")]
     [SerializeField] private Color middleCO2Color = new Color(1.00f, 0.70f, 0.05f, 0.85f);
-
-    [Tooltip("Postavi isto kao CO2 High Color na Watch gradientu.")]
     [SerializeField] private Color highCO2Color = new Color(0.90f, 0.05f, 0.02f, 0.85f);
 
     [Range(2, 3)]
@@ -69,28 +64,22 @@ public class CO2GridLineGraph : MonoBehaviour
 
     [SerializeField] private float averageWindowSeconds = 60f;
 
-    [Header("Automatic Expiration")]
-    [Tooltip("Ako je uključeno, ćelija se potpuno briše kad nema nijedan CO2 sample mlađi od Cell Data Lifetime Seconds.")]
+    [Header("Expiration / Auto Clear")]
+    [Tooltip("Ako je uključeno, ćelija se očisti ako nema nijedan noviji sample.")]
     [SerializeField] private bool removeCellsWithNoRecentSamples = true;
 
-    [Tooltip("Nakon koliko sekundi bez novog mjerenja ćelija gubi boju, Average CO2 tooltip i podatke grafa. Za tvoj use-case ostavi 60.")]
+    [Tooltip("Koliko dugo ćelija ostaje obojana bez novih CO2 podataka.")]
     [SerializeField] private float cellDataLifetimeSeconds = 60f;
 
-    [Tooltip("Koliko često se provjerava treba li obrisati stare CO2 ćelije.")]
+    [Tooltip("Koliko često se provjerava treba li očistiti stare ćelije.")]
     [SerializeField] private float expirationRefreshInterval = 1f;
 
-    private float expirationTimer = 0f;
-
     [Header("Interaction")]
-    [Tooltip("Novi zasebni CO2 cursor. Ne koristi temperaturni GridCellCursor.")]
+    [Tooltip("Zasebni CO2 cursor. Ne koristi temperaturni GridCellCursor.")]
     [SerializeField] private CO2GridCellCursor co2CellCursor;
 
     [Tooltip("Fallback ako CO2 cursor nije spojen ili nema validnu ćeliju.")]
     [SerializeField] private Transform rayOrigin;
-
-    [Tooltip("Opcionalni filter koji sprječava otvaranje CO2 grafova izvan sobe ili preblizu zidu.")]
-    [SerializeField] private CellInteractionBounds interactionBounds;
-    [SerializeField] private bool useInteractionBounds = true;
 
     [SerializeField] private InputActionReference openGraphAction;
     [SerializeField] private float raycastDistance = 50f;
@@ -99,6 +88,10 @@ public class CO2GridLineGraph : MonoBehaviour
     [SerializeField] private LayerMask gridLayerMask = ~0;
 
     [SerializeField] private bool debugRay = false;
+
+    [Header("Room / Interaction Bounds")]
+    [SerializeField] private bool useInteractionBounds = true;
+    [SerializeField] private CellInteractionBounds interactionBounds;
 
     [Header("Graph Opening Rules")]
     [Tooltip("Ako je false, ne možeš otvoriti graf lijevo/desno/gore/dolje od već otvorenog. Dijagonalno je dopušteno.")]
@@ -143,6 +136,16 @@ public class CO2GridLineGraph : MonoBehaviour
     [SerializeField] private float dateLabelCharacterSize = 0.019f;
     [SerializeField] private float dateLabelVerticalOffset = 0.17f;
 
+    [Header("Audio")]
+    [Tooltip("Zvuk koji se pusti kad se CO2 line graph stvarno otvori.")]
+    [SerializeField] private AudioClip spawnSound;
+
+    [Tooltip("Zvuk koji se pusti kad se CO2 line graph zatvori/spusti.")]
+    [SerializeField] private AudioClip despawnSound;
+
+    [Tooltip("Spoji Audio Source s AirQualityTracker objekta.")]
+    [SerializeField] private AudioSource audioSource;
+
     [Header("Refresh")]
     [SerializeField] private float graphRefreshInterval = 1f;
 
@@ -173,6 +176,7 @@ public class CO2GridLineGraph : MonoBehaviour
         new List<Vector2Int>();
 
     private float graphRefreshTimer = 0f;
+    private float expirationRefreshTimer = 0f;
 
     private bool interactionEnabled = true;
     private bool visualizationVisible = true;
@@ -223,11 +227,12 @@ public class CO2GridLineGraph : MonoBehaviour
         minCO2Ppm = Mathf.Min(minCO2Ppm, maxCO2Ppm - 1f);
         maxCO2Ppm = Mathf.Max(maxCO2Ppm, minCO2Ppm + 1f);
 
+        historyRetentionSeconds = Mathf.Max(1f, historyRetentionSeconds);
+        averageWindowSeconds = Mathf.Max(1f, averageWindowSeconds);
+
         cellDataLifetimeSeconds = Mathf.Max(1f, cellDataLifetimeSeconds);
         expirationRefreshInterval = Mathf.Max(0.1f, expirationRefreshInterval);
 
-        historyRetentionSeconds = Mathf.Max(cellDataLifetimeSeconds, historyRetentionSeconds);
-        averageWindowSeconds = Mathf.Max(1f, averageWindowSeconds);
         graphWindowSeconds = Mathf.Max(1f, graphWindowSeconds);
 
         graphWidth = Mathf.Max(0.1f, graphWidth);
@@ -243,12 +248,12 @@ public class CO2GridLineGraph : MonoBehaviour
 
         if (removeCellsWithNoRecentSamples)
         {
-            expirationTimer += Time.deltaTime;
+            expirationRefreshTimer += Time.deltaTime;
 
-            if (expirationTimer >= expirationRefreshInterval)
+            if (expirationRefreshTimer >= expirationRefreshInterval)
             {
-                expirationTimer = 0f;
-                PruneExpiredSamplesAndRefreshTexture();
+                expirationRefreshTimer = 0f;
+                RemoveExpiredCellData();
             }
         }
 
@@ -354,10 +359,20 @@ public class CO2GridLineGraph : MonoBehaviour
     {
         latestCO2 = 0f;
 
-        List<CO2Sample> samples = GetCellHistory(gridX, gridY);
+        Vector2Int key = new Vector2Int(gridX, gridY);
 
-        if (samples == null || samples.Count == 0)
+        if (!cellHistory.TryGetValue(key, out List<CO2Sample> samples))
             return false;
+
+        RemoveExpiredSamplesFromList(samples);
+
+        if (samples.Count == 0)
+        {
+            cellHistory.Remove(key);
+            ClearCellPixel(gridX, gridY);
+            ApplyTexture();
+            return false;
+        }
 
         latestCO2 = samples[samples.Count - 1].co2Ppm;
         return true;
@@ -367,6 +382,21 @@ public class CO2GridLineGraph : MonoBehaviour
     {
         displayedCO2 = 0f;
 
+        Vector2Int key = new Vector2Int(gridX, gridY);
+
+        if (!cellHistory.TryGetValue(key, out List<CO2Sample> samples))
+            return false;
+
+        RemoveExpiredSamplesFromList(samples);
+
+        if (samples.Count == 0)
+        {
+            cellHistory.Remove(key);
+            ClearCellPixel(gridX, gridY);
+            ApplyTexture();
+            return false;
+        }
+
         if (useAverageCO2ForCellColor)
         {
             if (TryGetAverageCO2ForCell(gridX, gridY, averageWindowSeconds, out float average))
@@ -374,15 +404,12 @@ public class CO2GridLineGraph : MonoBehaviour
                 displayedCO2 = average;
                 return true;
             }
+
+            return false;
         }
 
-        if (TryGetLatestCO2ForCell(gridX, gridY, out float latest))
-        {
-            displayedCO2 = latest;
-            return true;
-        }
-
-        return false;
+        displayedCO2 = samples[samples.Count - 1].co2Ppm;
+        return true;
     }
 
     public Color GetColorForCO2Value(float co2Ppm)
@@ -451,6 +478,17 @@ public class CO2GridLineGraph : MonoBehaviour
         heatmapTexture.SetPixel(gridSizeX - 1 - gridX, gridSizeY - 1 - gridY, color);
     }
 
+    private void ClearCellPixel(int gridX, int gridY)
+    {
+        if (heatmapTexture == null)
+            return;
+
+        if (gridX < 0 || gridX >= gridSizeX || gridY < 0 || gridY >= gridSizeY)
+            return;
+
+        heatmapTexture.SetPixel(gridSizeX - 1 - gridX, gridSizeY - 1 - gridY, emptyCellColor);
+    }
+
     private void RecordCellSample(int gridX, int gridY, float co2Ppm)
     {
         Vector2Int key = new Vector2Int(gridX, gridY);
@@ -476,94 +514,27 @@ public class CO2GridLineGraph : MonoBehaviour
 
         samples.Add(new CO2Sample(relativeTime, co2Ppm));
 
-        float minAllowedTime = relativeTime - historyRetentionSeconds;
-        samples.RemoveAll(sample => sample.relativeTime < minAllowedTime);
-    }
-
-
-    public void PruneExpiredSamplesAndRefreshTexture()
-    {
-        if (heatmapTexture == null)
-            return;
-
-        float currentTime = GetRelativeSimulationTime();
-        float minAllowedTime = currentTime - cellDataLifetimeSeconds;
-
-        bool textureChanged = false;
-        List<Vector2Int> keysToRemove = new List<Vector2Int>();
-
-        foreach (KeyValuePair<Vector2Int, List<CO2Sample>> pair in cellHistory)
-        {
-            List<CO2Sample> samples = pair.Value;
-
-            int removed = samples.RemoveAll(sample => sample.relativeTime < minAllowedTime);
-
-            if (removed > 0)
-                textureChanged = true;
-
-            if (samples.Count == 0)
-            {
-                keysToRemove.Add(pair.Key);
-                ClearCellPixel(pair.Key.x, pair.Key.y);
-                textureChanged = true;
-            }
-            else if (removed > 0)
-            {
-                RepaintCellFromCurrentHistory(pair.Key.x, pair.Key.y, samples);
-            }
-        }
-
-        for (int i = 0; i < keysToRemove.Count; i++)
-            cellHistory.Remove(keysToRemove[i]);
-
-        if (textureChanged)
-        {
-            ApplyTexture();
-
-            if (openGraphs.Count > 0)
-                RebuildAllOpenGraphs();
-        }
-    }
-
-    private void RepaintCellFromCurrentHistory(int gridX, int gridY, List<CO2Sample> samples)
-    {
-        if (samples == null || samples.Count == 0)
-        {
-            ClearCellPixel(gridX, gridY);
-            return;
-        }
-
-        float displayedCO2 = samples[samples.Count - 1].co2Ppm;
-
-        if (useAverageCO2ForCellColor &&
-            TryGetAverageCO2ForCell(gridX, gridY, averageWindowSeconds, out float averageCO2))
-        {
-            displayedCO2 = averageCO2;
-        }
-
-        Color color = GetColorForCO2(displayedCO2);
-        heatmapTexture.SetPixel(gridSizeX - 1 - gridX, gridSizeY - 1 - gridY, color);
-    }
-
-    private void ClearCellPixel(int gridX, int gridY)
-    {
-        if (heatmapTexture == null)
-            return;
-
-        if (gridX < 0 || gridX >= gridSizeX || gridY < 0 || gridY >= gridSizeY)
-            return;
-
-        heatmapTexture.SetPixel(gridSizeX - 1 - gridX, gridSizeY - 1 - gridY, emptyCellColor);
+        RemoveExpiredSamplesFromList(samples);
     }
 
     private bool TryGetAverageCO2ForCell(int gridX, int gridY, float windowSeconds, out float averageCO2)
     {
         averageCO2 = 0f;
 
-        List<CO2Sample> samples = GetCellHistory(gridX, gridY);
+        Vector2Int key = new Vector2Int(gridX, gridY);
 
-        if (samples == null || samples.Count == 0)
+        if (!cellHistory.TryGetValue(key, out List<CO2Sample> samples))
             return false;
+
+        RemoveExpiredSamplesFromList(samples);
+
+        if (samples.Count == 0)
+        {
+            cellHistory.Remove(key);
+            ClearCellPixel(gridX, gridY);
+            ApplyTexture();
+            return false;
+        }
 
         float currentTime = GetRelativeSimulationTime();
         float minAllowedTime = currentTime - windowSeconds;
@@ -587,6 +558,58 @@ public class CO2GridLineGraph : MonoBehaviour
 
         averageCO2 = sum / count;
         return true;
+    }
+
+    private void RemoveExpiredSamplesFromList(List<CO2Sample> samples)
+    {
+        if (samples == null)
+            return;
+
+        float currentTime = GetRelativeSimulationTime();
+        float minAllowedTime = currentTime - cellDataLifetimeSeconds;
+
+        for (int i = samples.Count - 1; i >= 0; i--)
+        {
+            if (samples[i].relativeTime < minAllowedTime)
+                samples.RemoveAt(i);
+        }
+    }
+
+    private void RemoveExpiredCellData()
+    {
+        if (cellHistory.Count == 0)
+            return;
+
+        List<Vector2Int> toRemove = null;
+
+        foreach (KeyValuePair<Vector2Int, List<CO2Sample>> pair in cellHistory)
+        {
+            List<CO2Sample> samples = pair.Value;
+
+            RemoveExpiredSamplesFromList(samples);
+
+            if (samples == null || samples.Count == 0)
+            {
+                if (toRemove == null)
+                    toRemove = new List<Vector2Int>();
+
+                toRemove.Add(pair.Key);
+            }
+        }
+
+        if (toRemove == null || toRemove.Count == 0)
+            return;
+
+        for (int i = 0; i < toRemove.Count; i++)
+        {
+            Vector2Int cell = toRemove[i];
+
+            cellHistory.Remove(cell);
+            ClearCellPixel(cell.x, cell.y);
+        }
+
+        ApplyTexture();
+        RebuildAllOpenGraphs();
     }
 
     private Color GetColorForCO2(float co2Ppm)
@@ -697,14 +720,17 @@ public class CO2GridLineGraph : MonoBehaviour
 
     private void ToggleOrCreateGraph(int gridX, int gridY)
     {
-        if (useInteractionBounds &&
-            interactionBounds != null &&
-            !interactionBounds.IsCO2CellAllowed(this, gridX, gridY))
+        if (useInteractionBounds && interactionBounds != null)
         {
-            if (logClicks)
-                Debug.Log($"CO2 line graph nije otvoren jer je ćelija izvan dopuštenog prostora ili preblizu zidu: ({gridX},{gridY})");
+            Vector3 cellCenter = GetCellCenterWorld(gridX, gridY);
 
-            return;
+            if (!interactionBounds.IsCO2CellAllowed(cellCenter, GetCellWidth(), GetCellHeight()))
+            {
+                if (logRejectedAdjacentClicks)
+                    Debug.Log($"CO2 graph nije otvoren jer ćelija ({gridX},{gridY}) nije dovoljno unutar sobe.");
+
+                return;
+            }
         }
 
         Vector2Int cell = new Vector2Int(gridX, gridY);
@@ -738,6 +764,9 @@ public class CO2GridLineGraph : MonoBehaviour
 
         GameObject graphRoot = BuildGraph(gridX, gridY, true);
 
+        if (graphRoot == null)
+            return;
+
         GraphInstance instance = new GraphInstance
         {
             root = graphRoot,
@@ -746,6 +775,8 @@ public class CO2GridLineGraph : MonoBehaviour
 
         openGraphs[cell] = instance;
         graphOpenOrder.Add(cell);
+
+        PlaySpawnSound(graphRoot.transform.position);
 
         if (logClicks)
             Debug.Log($"CO2 line graph otvoren na ćeliji ({gridX},{gridY}). Ukupno otvorenih: {openGraphs.Count}");
@@ -781,12 +812,17 @@ public class CO2GridLineGraph : MonoBehaviour
         }
     }
 
-    private void CloseGraph(Vector2Int cell)
+    private void CloseGraph(Vector2Int cell, bool playSound = true)
     {
         if (openGraphs.TryGetValue(cell, out GraphInstance instance))
         {
             if (instance.root != null)
+            {
+                if (playSound)
+                    PlayDespawnSound(instance.root.transform.position);
+
                 Destroy(instance.root);
+            }
 
             openGraphs.Remove(cell);
         }
@@ -799,7 +835,7 @@ public class CO2GridLineGraph : MonoBehaviour
         List<Vector2Int> cells = new List<Vector2Int>(openGraphs.Keys);
 
         for (int i = 0; i < cells.Count; i++)
-            CloseGraph(cells[i]);
+            CloseGraph(cells[i], false);
     }
 
     private void RebuildAllOpenGraphs()
@@ -817,28 +853,41 @@ public class CO2GridLineGraph : MonoBehaviour
                 Destroy(instance.root);
 
             GameObject rebuilt = BuildGraph(cell.x, cell.y, false);
+
+            if (rebuilt == null)
+            {
+                openGraphs.Remove(cell);
+                graphOpenOrder.Remove(cell);
+                continue;
+            }
+
             instance.root = rebuilt;
             openGraphs[cell] = instance;
         }
     }
 
-    private Vector3 GetGraphAnchorWorld(int gridX, int gridY)
-    {
-        Vector3 cellCenter = GetCellCenterWorld(gridX, gridY);
-
-        if (useInteractionBounds &&
-            interactionBounds != null &&
-            interactionBounds.TryGetSafeCO2GraphAnchor(this, gridX, gridY, graphWidth * 0.65f, out Vector3 safeAnchor))
-        {
-            return safeAnchor;
-        }
-
-        return cellCenter;
-    }
-
     private GameObject BuildGraph(int gridX, int gridY, bool animate)
     {
-        Vector3 graphAnchor = GetGraphAnchorWorld(gridX, gridY);
+        Vector3 cellCenter = GetCellCenterWorld(gridX, gridY);
+        Vector3 graphAnchor = cellCenter;
+
+        if (useInteractionBounds && interactionBounds != null)
+        {
+            bool gotAnchor = interactionBounds.TryGetCO2GraphAnchor(
+                cellCenter,
+                GetCellWidth(),
+                GetCellHeight(),
+                out graphAnchor
+            );
+
+            if (!gotAnchor)
+            {
+                if (logRejectedAdjacentClicks)
+                    Debug.Log($"CO2 graph nije otvoren jer nije pronađena sigurna pozicija za ćeliju ({gridX},{gridY}).");
+
+                return null;
+            }
+        }
 
         GameObject root = new GameObject($"CO2LineGraphRoot_{gridX}_{gridY}");
         root.transform.SetParent(graphParent, true);
@@ -1163,6 +1212,36 @@ public class CO2GridLineGraph : MonoBehaviour
         material.renderQueue = 3000;
 
         return material;
+    }
+
+    private void PlaySpawnSound(Vector3 position)
+    {
+        if (spawnSound == null)
+            return;
+
+        if (audioSource != null)
+        {
+            audioSource.PlayOneShot(spawnSound);
+        }
+        else
+        {
+            AudioSource.PlayClipAtPoint(spawnSound, position);
+        }
+    }
+
+    private void PlayDespawnSound(Vector3 position)
+    {
+        if (despawnSound == null)
+            return;
+
+        if (audioSource != null)
+        {
+            audioSource.PlayOneShot(despawnSound);
+        }
+        else
+        {
+            AudioSource.PlayClipAtPoint(despawnSound, position);
+        }
     }
 
     private void EnsureCollider()
