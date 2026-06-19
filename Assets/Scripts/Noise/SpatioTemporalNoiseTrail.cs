@@ -268,18 +268,33 @@ public class SpatioTemporalNoiseTrail : MonoBehaviour
             return;
 
         lastSampleTime = Time.time;
+        AddSampleAtTime(worldPosition, noiseDb, Time.time, true);
+    }
 
+    public void AddSampleWithAge(Vector3 worldPosition, float noiseDb, float ageSeconds)
+    {
+        float clampedAge = Mathf.Clamp(ageSeconds, 0f, historySeconds);
+        float sampleTime = Time.time - clampedAge;
+        AddSampleAtTime(worldPosition, noiseDb, sampleTime, false);
+    }
+
+    private void AddSampleAtTime(Vector3 worldPosition, float noiseDb, float sampleTime, bool liveSample)
+    {
         NoiseSample sample = new NoiseSample
         {
             worldPosition = worldPosition,
             noiseDb = noiseDb,
-            time = Time.time
+            time = sampleTime
         };
 
         samples.Add(sample);
+        samples.Sort((a, b) => a.time.CompareTo(b.time));
+
+        if (liveSample && sampleTime > lastSampleTime)
+            lastSampleTime = sampleTime;
 
         if (logSamples)
-            Debug.Log($"NoiseTrail sample | pos={worldPosition}, value={noiseDb:F1}, count={samples.Count}");
+            Debug.Log($"NoiseTrail sample | pos={worldPosition}, value={noiseDb:F1}, age={(Time.time - sampleTime):F1}s, count={samples.Count}");
 
         RemoveOldSamples();
         RebuildMesh();

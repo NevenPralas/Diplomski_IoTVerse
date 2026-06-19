@@ -377,15 +377,37 @@ public class CO2GridLineGraph : MonoBehaviour
         ApplyTexture();
 
         if (logSamples)
-            Debug.Log($"CO2 sample | cell=({gridX},{gridY}) | pos={worldPosition} | co2={co2Ppm:F1} ppm");
+            Debug.Log($"CO2 sample | cell=({gridX},{gridY}) | pos={worldPosition} | value={co2Ppm:F1} {valueUnit}");
+    }
+
+    public void AddCO2SampleWithAge(Vector3 worldPosition, float value, float ageSeconds)
+    {
+        if (!TryGetCellIndex(worldPosition, out int gridX, out int gridY))
+            return;
+
+        float clampedAge = Mathf.Clamp(ageSeconds, 0f, historyRetentionSeconds);
+        float relativeTime = Mathf.Max(0f, GetRelativeSimulationTime() - clampedAge);
+
+        PaintCellAtRelativeTime(gridX, gridY, value, relativeTime);
+        ApplyTexture();
+
+        if (logSamples)
+            Debug.Log($"CO2 replay sample | cell=({gridX},{gridY}) | age={ageSeconds:F1}s | value={value:F1} {valueUnit}");
     }
 
     public void ClearCO2()
     {
+        ClearCO2(true);
+    }
+
+    public void ClearCO2(bool resetSimulationClock)
+    {
         cellHistory.Clear();
         ClearTexture();
         CloseAllGraphs();
-        simulationStartTime = Time.time;
+
+        if (resetSimulationClock)
+            simulationStartTime = Time.time;
     }
 
     public bool TryGetCellIndex(Vector3 worldPosition, out int gridX, out int gridY)
@@ -561,6 +583,25 @@ public class CO2GridLineGraph : MonoBehaviour
         heatmapTexture.SetPixel(gridSizeX - 1 - gridX, gridSizeY - 1 - gridY, color);
     }
 
+    private void PaintCellAtRelativeTime(int gridX, int gridY, float value, float relativeTime)
+    {
+        if (gridX < 0 || gridX >= gridSizeX || gridY < 0 || gridY >= gridSizeY)
+            return;
+
+        RecordCellSampleAtRelativeTime(gridX, gridY, value, relativeTime);
+
+        float displayedValue = value;
+
+        if (useAverageCO2ForCellColor &&
+            TryGetAverageCO2ForCell(gridX, gridY, averageWindowSeconds, out float averageValue))
+        {
+            displayedValue = averageValue;
+        }
+
+        Color color = GetColorForCO2(displayedValue);
+        heatmapTexture.SetPixel(gridSizeX - 1 - gridX, gridSizeY - 1 - gridY, color);
+    }
+
     private void ClearCellPixel(int gridX, int gridY)
     {
         if (heatmapTexture == null)
@@ -596,6 +637,35 @@ public class CO2GridLineGraph : MonoBehaviour
         }
 
         samples.Add(new CO2Sample(relativeTime, co2Ppm));
+
+        RemoveExpiredSamplesFromList(samples);
+    }
+
+    private void RecordCellSampleAtRelativeTime(int gridX, int gridY, float value, float relativeTime)
+    {
+        Vector2Int key = new Vector2Int(gridX, gridY);
+
+        if (!cellHistory.TryGetValue(key, out List<CO2Sample> samples))
+        {
+            samples = new List<CO2Sample>();
+            cellHistory[key] = samples;
+        }
+
+        relativeTime = Mathf.Max(0f, relativeTime);
+
+        if (samples.Count > 0)
+        {
+            CO2Sample last = samples[samples.Count - 1];
+
+            if (Mathf.Abs(last.relativeTime - relativeTime) < 0.01f &&
+                Mathf.Abs(last.co2Ppm - value) < 0.001f)
+            {
+                return;
+            }
+        }
+
+        samples.Add(new CO2Sample(relativeTime, value));
+        samples.Sort((a, b) => a.relativeTime.CompareTo(b.relativeTime));
 
         RemoveExpiredSamplesFromList(samples);
     }

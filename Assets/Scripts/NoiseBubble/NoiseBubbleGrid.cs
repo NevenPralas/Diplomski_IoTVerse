@@ -231,6 +231,18 @@ public class NoiseBubbleGrid : MonoBehaviour
 
     public void AddNoiseSample(Vector3 worldPosition, float noiseDb)
     {
+        AddNoiseSampleAtTime(worldPosition, noiseDb, Time.time, true);
+    }
+
+    public void AddNoiseSampleWithAge(Vector3 worldPosition, float noiseDb, float ageSeconds)
+    {
+        float clampedAge = Mathf.Clamp(ageSeconds, 0f, Mathf.Max(historySeconds, removeAfterSeconds));
+        float sampleTime = Time.time - clampedAge;
+        AddNoiseSampleAtTime(worldPosition, noiseDb, sampleTime, false);
+    }
+
+    private void AddNoiseSampleAtTime(Vector3 worldPosition, float noiseDb, float sampleTime, bool markAsLiveSample)
+    {
         if (heatmap == null)
         {
             Debug.LogWarning("NoiseBubbleGrid: Heatmap referenca nije postavljena.");
@@ -242,16 +254,21 @@ public class NoiseBubbleGrid : MonoBehaviour
 
         Vector2Int cellKey = new Vector2Int(gridX, gridY);
 
+        bool createdNewCell = false;
+
         if (!cells.TryGetValue(cellKey, out NoiseCellData cellData))
         {
             cellData = CreateCellData(cellKey, gridX, gridY, worldPosition);
             cells[cellKey] = cellData;
+            createdNewCell = true;
         }
 
-        float now = Time.time;
+        cellData.samples.Add(new NoiseSample(sampleTime, noiseDb));
+        cellData.samples.Sort((a, b) => a.time.CompareTo(b.time));
 
-        cellData.samples.Add(new NoiseSample(now, noiseDb));
-        cellData.lastUpdateTime = now;
+        if (createdNewCell || sampleTime >= cellData.lastUpdateTime || cellData.samples.Count == 1)
+            cellData.lastUpdateTime = sampleTime;
+
         cellData.isDespawning = false;
 
         RemoveOldSamples(cellData);
@@ -264,14 +281,14 @@ public class NoiseBubbleGrid : MonoBehaviour
         cellData.latestNoiseDb = displayNoise;
         cellData.targetDiameter = GetDiameterForNoise(displayNoise);
 
-        // Kad je robot upravo na toj ćeliji, odmah osvježi kao aktivnu kuglu.
-        UpdateBubbleMaterial(cellData, displayNoise, true);
+        bool isLiveOrRecent = markAsLiveSample || (Time.time - sampleTime <= activePulseTimeoutSeconds);
+        UpdateBubbleMaterial(cellData, displayNoise, isLiveOrRecent);
 
         if (logAddedSamples)
         {
             Debug.Log(
                 $"NoiseBubbleGrid sample | cell=({gridX},{gridY}) " +
-                $"world={worldPosition} | noise={noiseDb:F1} dBA | display={displayNoise:F1} dBA"
+                $"world={worldPosition} | value={noiseDb:F1} | display={displayNoise:F1} | age={(Time.time - sampleTime):F1}s"
             );
         }
     }

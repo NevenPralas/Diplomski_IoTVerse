@@ -39,7 +39,7 @@ public class CO2GridCellCursor : MonoBehaviour
     [SerializeField] private bool debugRay = false;
 
     [Header("Behaviour")]
-    [Tooltip("Ako je uključeno, cursor se vidi samo u AirQuality/CO2 modu.")]
+    [Tooltip("Ako je uključeno, cursor se vidi samo kad je aktivna Line Graph metoda na B satu. Ime polja je ostalo zbog kompatibilnosti sa starim Inspectorom.")]
     [SerializeField] private bool onlyShowInAirQualityMode = true;
 
     [Tooltip("Ako je uključeno, cursor se vidi i na praznim CO2 ćelijama. To želiš jer klik na praznu ćeliju može otvoriti prazan graf.")]
@@ -96,7 +96,10 @@ public class CO2GridCellCursor : MonoBehaviour
         if (co2Grid == null)
             return false;
 
-        if (onlyShowInAirQualityMode && switcherSensor != null && !switcherSensor.IsAirQualityModeActive())
+        // U staroj verziji ovo je bilo vezano uz AirQuality/CO2 atribut.
+        // U novoj dual-watch logici cursor mora pratiti B sat, tj. Line Graph metodu,
+        // jer line graph može prikazivati Temperature/Noise/Humidity/CO2.
+        if (onlyShowInAirQualityMode && switcherSensor != null && !switcherSensor.IsLineGraphMethodActive())
             return false;
 
         return true;

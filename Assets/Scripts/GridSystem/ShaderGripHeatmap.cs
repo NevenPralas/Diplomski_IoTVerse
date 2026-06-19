@@ -191,6 +191,17 @@ public class ShaderGridHeatmap : MonoBehaviour
         }
     }
 
+    public void PaintAtWorldPositionWithAge(Vector3 worldPosition, float value, float ageSeconds)
+    {
+        if (TryGetCellIndex(worldPosition, out int gridX, out int gridY))
+        {
+            float clampedAge = Mathf.Clamp(ageSeconds, 0f, historyRetentionSeconds);
+            float relativeTime = Mathf.Max(0f, GetRelativeSimulationTime() - clampedAge);
+            PaintCellAtRelativeTime(gridX, gridY, value, relativeTime);
+            ApplyTexture();
+        }
+    }
+
     public void PaintAlongPath(Vector3 startWorldPosition, Vector3 endWorldPosition, float temperature)
     {
         float distance = Vector3.Distance(startWorldPosition, endWorldPosition);
@@ -256,6 +267,21 @@ public class ShaderGridHeatmap : MonoBehaviour
             cellParticles.ShowOrUpdateCellParticle(gridX, gridY, displayedTemperature);
     }
 
+    private void PaintCellAtRelativeTime(int gridX, int gridY, float temperature, float relativeTime)
+    {
+        if (gridX < 0 || gridX >= gridSizeX || gridY < 0 || gridY >= gridSizeY)
+            return;
+
+        RecordCellSampleAtRelativeTime(gridX, gridY, temperature, relativeTime);
+
+        float displayedTemperature = GetDisplayedTemperatureForCell(gridX, gridY, temperature);
+        Color color = GetTemperatureColor(displayedTemperature);
+        heatmapTexture.SetPixel(gridSizeX - 1 - gridX, gridSizeY - 1 - gridY, color);
+
+        if (cellParticles != null)
+            cellParticles.ShowOrUpdateCellParticle(gridX, gridY, displayedTemperature);
+    }
+
     private void RecordCellSample(int gridX, int gridY, float temperature)
     {
         Vector2Int key = new Vector2Int(gridX, gridY);
@@ -282,6 +308,36 @@ public class ShaderGridHeatmap : MonoBehaviour
         samples.Add(new CellTemperatureSample(relativeTime, temperature));
 
         float minAllowedTime = relativeTime - historyRetentionSeconds;
+        samples.RemoveAll(sample => sample.relativeTime < minAllowedTime);
+    }
+
+    private void RecordCellSampleAtRelativeTime(int gridX, int gridY, float temperature, float relativeTime)
+    {
+        Vector2Int key = new Vector2Int(gridX, gridY);
+
+        if (!cellHistory.TryGetValue(key, out List<CellTemperatureSample> samples))
+        {
+            samples = new List<CellTemperatureSample>();
+            cellHistory[key] = samples;
+        }
+
+        relativeTime = Mathf.Max(0f, relativeTime);
+
+        if (samples.Count > 0)
+        {
+            CellTemperatureSample last = samples[samples.Count - 1];
+
+            if (Mathf.Abs(last.relativeTime - relativeTime) < 0.01f &&
+                Mathf.Abs(last.temperature - temperature) < 0.001f)
+            {
+                return;
+            }
+        }
+
+        samples.Add(new CellTemperatureSample(relativeTime, temperature));
+        samples.Sort((a, b) => a.relativeTime.CompareTo(b.relativeTime));
+
+        float minAllowedTime = GetRelativeSimulationTime() - historyRetentionSeconds;
         samples.RemoveAll(sample => sample.relativeTime < minAllowedTime);
     }
 
@@ -482,9 +538,16 @@ public class ShaderGridHeatmap : MonoBehaviour
 
     public void ClearHeatmap()
     {
+        ClearHeatmap(true);
+    }
+
+    public void ClearHeatmap(bool resetSimulationClock)
+    {
         ClearTexture();
         cellHistory.Clear();
-        simulationStartTime = Time.time;
+
+        if (resetSimulationClock)
+            simulationStartTime = Time.time;
 
         if (cellParticles != null)
             cellParticles.ClearAllParticles();

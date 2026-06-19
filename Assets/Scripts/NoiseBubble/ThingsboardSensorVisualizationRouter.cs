@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -21,8 +22,27 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
     [Tooltip("Objekt koji ima novu SwitcherSensor skriptu. A watch bira podatak, B watch bira metodu.")]
     [SerializeField] private SwitcherSensor switcherSensor;
 
-    [Tooltip("Ako promijeniš podatak na A satu, brišu se postojeći historyji u svim metodama da se ne miješaju različiti atributi.")]
+    [Tooltip("Za ovu novu memorijsku logiku ovo treba ostati uključeno. Kad promijeniš A atribut, trenutni vizualni objekti se očiste pa se odmah rekreiraju iz memorije odabrane zadnje minute.")]
     [SerializeField] private bool clearVisualizationsWhenSensorChanges = true;
+
+    [Header("Per Sensor Background Memory")]
+    [Tooltip("Ako je uključeno, router pamti zadnju minutu za svaki atribut zasebno, neovisno o tome koji je trenutno aktivan na A satu.")]
+    [SerializeField] private bool keepPerSensorHistory = true;
+
+    [Tooltip("Koliko sekundi podataka se pamti za svaki atribut. Stavi isto kao history prozore vizualizacija, npr. 60.")]
+    [SerializeField] private float sensorMemorySeconds = 60f;
+
+    [Tooltip("Kad promijeniš A atribut, odabrani atribut se odmah ponovno iscrta iz memorije, umjesto da vizualizacija krene od nule.")]
+    [SerializeField] private bool replayHistoryWhenSensorChanges = true;
+
+    [Tooltip("Ako je uključeno, na promjenu A atributa trenutni frame se ne dodaje drugi put jer je već uključen u replay iz memorije.")]
+    [SerializeField] private bool skipLiveRouteOnReplayFrame = true;
+
+    [Tooltip("Ako je uključeno, i promjena B metode odmah rekreira trenutno odabrani atribut iz memorije zadnje minute. Ovo je bitno za Space-Time Cubes i Line Graph jer se oni često otvaraju tek nakon promjene metode.")]
+    [SerializeField] private bool replayHistoryWhenVisualizationMethodChanges = true;
+
+    [Tooltip("Kad se replay radi zbog promjene A ili B, čiste se runtime historyji metoda, ali se NE resetira interni sat za Space-Time Cubes i Line Graph. Ovo mora ostati uključeno.")]
+    [SerializeField] private bool preserveVisualizationClocksDuringReplayClear = true;
 
     [Header("Robot Driving")]
     [SerializeField] private bool driveRobotFromThingsBoardXY = true;
@@ -55,7 +75,7 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
     [SerializeField] private CO2GridLineGraph lineGraph;
 
     [Header("Route Selected Sensor Into Methods")]
-    [Tooltip("Preporuka: true. Tada se odabrani podatak zapisuje u sve 4 metode, pa kad promijeniš B metodu imaš stanje zadnje minute.")]
+    [Tooltip("Preporuka: true. Tada odabrani podatak ide u sve 4 metode, pa kad promijeniš B metodu imaš stanje zadnje minute.")]
     [SerializeField] private bool feedSelectedSensorToAllMethods = true;
 
     [Header("Temperature Style")]
@@ -94,15 +114,25 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
     [SerializeField] private bool logMissingValues = true;
     [SerializeField] private bool logRobotMovement = false;
     [SerializeField] private bool logModeChanges = true;
+    [SerializeField] private bool logMemoryReplay = true;
 
     private string jwtToken;
     private long lastProcessedTimestamp = -1;
     private Vector3 lastRobotTarget;
     private bool hasLastRobotTarget = false;
     private SwitcherSensor.SensorMode lastSensorMode = SwitcherSensor.SensorMode.None;
+    private SwitcherSensor.VisualizationMethod lastVisualizationMethod = SwitcherSensor.VisualizationMethod.None;
 
     [Serializable] private class LoginRequest { public string username; public string password; }
     [Serializable] private class LoginResponse { public string token; public string refreshToken; }
+
+    private struct SensorMemorySample
+    {
+        public Vector3 worldPosition;
+        public float value;
+        public float unityTime;
+        public long telemetryTimestamp;
+    }
 
     private struct SelectedValueConfig
     {
@@ -118,6 +148,9 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
         public Color high;
     }
 
+    private readonly Dictionary<SwitcherSensor.SensorMode, List<SensorMemorySample>> sensorMemory =
+        new Dictionary<SwitcherSensor.SensorMode, List<SensorMemorySample>>();
+
     private void Awake()
     {
         if (switcherSensor == null)
@@ -128,6 +161,15 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
 
         if (fallbackRobotTransform == null && go2Controller != null)
             fallbackRobotTransform = go2Controller.transform;
+
+        EnsureMemoryBuckets();
+    }
+
+    private void OnValidate()
+    {
+        pollIntervalSeconds = Mathf.Max(0.05f, pollIntervalSeconds);
+        sensorMemorySeconds = Mathf.Max(1f, sensorMemorySeconds);
+        minimumTargetChangeDistance = Mathf.Max(0f, minimumTargetChangeDistance);
     }
 
     private void Start()
@@ -231,9 +273,24 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
         if (driveRobotFromThingsBoardXY)
             DriveRobot(worldPosition);
 
+        if (keepPerSensorHistory)
+        {
+            RememberAllAvailableSensorValues(
+                worldPosition,
+                hasTemperature, temperature, temperatureTs,
+                hasNoise, noiseDb, noiseTs,
+                hasHumidity, humidityPercent, humidityTs,
+                hasCO2, co2Ppm, co2Ts
+            );
+        }
+
         SwitcherSensor.SensorMode sensorMode = switcherSensor != null
             ? switcherSensor.CurrentSensorMode
             : SwitcherSensor.SensorMode.Temperature;
+
+        SwitcherSensor.VisualizationMethod visualizationMethod = switcherSensor != null
+            ? switcherSensor.CurrentVisualizationMethod
+            : SwitcherSensor.VisualizationMethod.SpaceTimeCubes;
 
         SelectedValueConfig selected = GetSelectedValue(
             sensorMode,
@@ -243,28 +300,155 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
             hasCO2, co2Ppm
         );
 
-        if (clearVisualizationsWhenSensorChanges && sensorMode != lastSensorMode)
+        bool sensorChanged = sensorMode != lastSensorMode;
+        bool methodChanged = visualizationMethod != lastVisualizationMethod;
+        bool shouldReplayBecauseSensorChanged = sensorChanged && replayHistoryWhenSensorChanges;
+        bool shouldReplayBecauseMethodChanged = methodChanged && replayHistoryWhenVisualizationMethodChanges;
+        bool replayedHistoryThisFrame = false;
+
+        if (sensorChanged || methodChanged)
         {
-            ClearAllMethodHistories();
-            if (logModeChanges)
-                Debug.Log($"Sensor changed: {lastSensorMode} -> {sensorMode}. Visualization histories cleared.");
+            SelectedValueConfig styleConfig = GetStyleConfig(sensorMode);
+            ConfigureAllMethodsForSelectedSensor(styleConfig);
+
+            bool shouldClearBeforeReplay = clearVisualizationsWhenSensorChanges && (shouldReplayBecauseSensorChanged || shouldReplayBecauseMethodChanged);
+
+            if (shouldClearBeforeReplay)
+                ClearAllMethodHistories(preserveVisualizationClocksDuringReplayClear);
+            else if (sensorChanged && clearVisualizationsWhenSensorChanges)
+                ClearAllMethodHistories(preserveVisualizationClocksDuringReplayClear);
+
+            if (keepPerSensorHistory && (shouldReplayBecauseSensorChanged || shouldReplayBecauseMethodChanged))
+            {
+                replayedHistoryThisFrame = ReplaySensorHistory(sensorMode);
+
+                if (logModeChanges)
+                {
+                    Debug.Log(
+                        $"Mode changed | Sensor: {lastSensorMode} -> {sensorMode} | Method: {lastVisualizationMethod} -> {visualizationMethod}. " +
+                        $"Replay={(replayedHistoryThisFrame ? "done" : "empty/disabled")}."
+                    );
+                }
+            }
+            else if (logModeChanges)
+            {
+                Debug.Log(
+                    $"Mode changed | Sensor: {lastSensorMode} -> {sensorMode} | Method: {lastVisualizationMethod} -> {visualizationMethod}. " +
+                    "Replay disabled."
+                );
+            }
         }
 
         lastSensorMode = sensorMode;
+        lastVisualizationMethod = visualizationMethod;
 
         if (selected.hasValue)
         {
             ConfigureAllMethodsForSelectedSensor(selected);
-            RouteSelectedValue(worldPosition, selected.value);
+
+            if (!(replayedHistoryThisFrame && skipLiveRouteOnReplayFrame))
+                RouteSelectedValue(worldPosition, selected.value);
         }
 
         if (logTelemetry)
         {
             Debug.Log(
                 $"[Sensor Router] sensor={sensorMode} | method={(switcherSensor != null ? switcherSensor.CurrentVisualizationMethod.ToString() : "N/A")} | " +
-                $"ros=({rosX:F2},{rosY:F2}) | unity={worldPosition} | selected={selected.value.ToString("F2", CultureInfo.InvariantCulture)} {selected.unit}"
+                $"ros=({rosX:F2},{rosY:F2}) | unity={worldPosition} | selected={(selected.hasValue ? selected.value.ToString("F2", CultureInfo.InvariantCulture) : "NO_VALUE")} {selected.unit}"
             );
         }
+    }
+
+    private void EnsureMemoryBuckets()
+    {
+        EnsureMemoryBucket(SwitcherSensor.SensorMode.Temperature);
+        EnsureMemoryBucket(SwitcherSensor.SensorMode.Noise);
+        EnsureMemoryBucket(SwitcherSensor.SensorMode.Humidity);
+        EnsureMemoryBucket(SwitcherSensor.SensorMode.AirQuality);
+    }
+
+    private void EnsureMemoryBucket(SwitcherSensor.SensorMode mode)
+    {
+        if (!sensorMemory.ContainsKey(mode))
+            sensorMemory[mode] = new List<SensorMemorySample>();
+    }
+
+    private void RememberAllAvailableSensorValues(
+        Vector3 worldPosition,
+        bool hasTemperature, float temperature, long temperatureTs,
+        bool hasNoise, float noiseDb, long noiseTs,
+        bool hasHumidity, float humidityPercent, long humidityTs,
+        bool hasCO2, float co2Ppm, long co2Ts)
+    {
+        if (hasTemperature) RememberSensorValue(SwitcherSensor.SensorMode.Temperature, worldPosition, temperature, temperatureTs);
+        if (hasNoise) RememberSensorValue(SwitcherSensor.SensorMode.Noise, worldPosition, noiseDb, noiseTs);
+        if (hasHumidity) RememberSensorValue(SwitcherSensor.SensorMode.Humidity, worldPosition, humidityPercent, humidityTs);
+        if (hasCO2) RememberSensorValue(SwitcherSensor.SensorMode.AirQuality, worldPosition, co2Ppm, co2Ts);
+
+        PruneAllSensorMemory();
+    }
+
+    private void RememberSensorValue(SwitcherSensor.SensorMode mode, Vector3 worldPosition, float value, long telemetryTimestamp)
+    {
+        EnsureMemoryBucket(mode);
+        List<SensorMemorySample> samples = sensorMemory[mode];
+
+        if (samples.Count > 0)
+        {
+            SensorMemorySample last = samples[samples.Count - 1];
+            if (telemetryTimestamp > 0 && last.telemetryTimestamp == telemetryTimestamp)
+                return;
+        }
+
+        samples.Add(new SensorMemorySample
+        {
+            worldPosition = worldPosition,
+            value = value,
+            unityTime = Time.time,
+            telemetryTimestamp = telemetryTimestamp
+        });
+    }
+
+    private void PruneAllSensorMemory()
+    {
+        float minTime = Time.time - sensorMemorySeconds;
+
+        foreach (KeyValuePair<SwitcherSensor.SensorMode, List<SensorMemorySample>> pair in sensorMemory)
+        {
+            List<SensorMemorySample> samples = pair.Value;
+            for (int i = samples.Count - 1; i >= 0; i--)
+            {
+                if (samples[i].unityTime < minTime)
+                    samples.RemoveAt(i);
+            }
+        }
+    }
+
+    private bool ReplaySensorHistory(SwitcherSensor.SensorMode sensorMode)
+    {
+        if (!sensorMemory.TryGetValue(sensorMode, out List<SensorMemorySample> samples))
+            return false;
+
+        PruneAllSensorMemory();
+
+        SelectedValueConfig config = GetStyleConfig(sensorMode);
+        ConfigureAllMethodsForSelectedSensor(config);
+
+        int routed = 0;
+
+        for (int i = 0; i < samples.Count; i++)
+        {
+            SensorMemorySample sample = samples[i];
+            float ageSeconds = Mathf.Clamp(Time.time - sample.unityTime, 0f, sensorMemorySeconds);
+
+            RouteValueWithAge(sample.worldPosition, sample.value, ageSeconds);
+            routed++;
+        }
+
+        if (logMemoryReplay)
+            Debug.Log($"[Sensor Router] Replayed {routed} samples for {sensorMode} from background memory.");
+
+        return routed > 0;
     }
 
     private SelectedValueConfig GetSelectedValue(
@@ -274,18 +458,45 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
         bool hasHumidity, float humidityPercent,
         bool hasCO2, float co2Ppm)
     {
+        SelectedValueConfig config = GetStyleConfig(mode);
+
         switch (mode)
         {
             case SwitcherSensor.SensorMode.Temperature:
-                return new SelectedValueConfig { hasValue = hasTemperature, value = temperature, title = "Temperature", unit = "°C", decimals = 1, min = minTemperature, max = maxTemperature, low = temperatureLowColor, middle = temperatureMiddleColor, high = temperatureHighColor };
+                config.hasValue = hasTemperature;
+                config.value = temperature;
+                return config;
             case SwitcherSensor.SensorMode.Noise:
-                return new SelectedValueConfig { hasValue = hasNoise, value = noiseDb, title = "Noise", unit = "dBA", decimals = 1, min = minNoiseDb, max = maxNoiseDb, low = noiseLowColor, middle = noiseMiddleColor, high = noiseHighColor };
+                config.hasValue = hasNoise;
+                config.value = noiseDb;
+                return config;
             case SwitcherSensor.SensorMode.Humidity:
-                return new SelectedValueConfig { hasValue = hasHumidity, value = humidityPercent, title = "Humidity", unit = "%", decimals = 1, min = minHumidityPercent, max = maxHumidityPercent, low = humidityLowColor, middle = humidityMiddleColor, high = humidityHighColor };
+                config.hasValue = hasHumidity;
+                config.value = humidityPercent;
+                return config;
             case SwitcherSensor.SensorMode.AirQuality:
-                return new SelectedValueConfig { hasValue = hasCO2, value = co2Ppm, title = "CO2", unit = "ppm", decimals = 0, min = minCO2Ppm, max = maxCO2Ppm, low = co2LowColor, middle = co2MiddleColor, high = co2HighColor };
+                config.hasValue = hasCO2;
+                config.value = co2Ppm;
+                return config;
             default:
                 return new SelectedValueConfig { hasValue = false };
+        }
+    }
+
+    private SelectedValueConfig GetStyleConfig(SwitcherSensor.SensorMode mode)
+    {
+        switch (mode)
+        {
+            case SwitcherSensor.SensorMode.Temperature:
+                return new SelectedValueConfig { hasValue = true, title = "Temperature", unit = "°C", decimals = 1, min = minTemperature, max = maxTemperature, low = temperatureLowColor, middle = temperatureMiddleColor, high = temperatureHighColor };
+            case SwitcherSensor.SensorMode.Noise:
+                return new SelectedValueConfig { hasValue = true, title = "Noise", unit = "dBA", decimals = 1, min = minNoiseDb, max = maxNoiseDb, low = noiseLowColor, middle = noiseMiddleColor, high = noiseHighColor };
+            case SwitcherSensor.SensorMode.Humidity:
+                return new SelectedValueConfig { hasValue = true, title = "Humidity", unit = "%", decimals = 1, min = minHumidityPercent, max = maxHumidityPercent, low = humidityLowColor, middle = humidityMiddleColor, high = humidityHighColor };
+            case SwitcherSensor.SensorMode.AirQuality:
+                return new SelectedValueConfig { hasValue = true, title = "CO2", unit = "ppm", decimals = 0, min = minCO2Ppm, max = maxCO2Ppm, low = co2LowColor, middle = co2MiddleColor, high = co2HighColor };
+            default:
+                return new SelectedValueConfig { hasValue = false, title = "Value", unit = "", decimals = 1, min = 0f, max = 1f, low = Color.blue, middle = Color.yellow, high = Color.red };
         }
     }
 
@@ -306,12 +517,42 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
 
     private void RouteSelectedValue(Vector3 worldPosition, float value)
     {
+        RouteValueInternal(worldPosition, value, 0f, false);
+    }
+
+    private void RouteValueWithAge(Vector3 worldPosition, float value, float ageSeconds)
+    {
+        RouteValueInternal(worldPosition, value, ageSeconds, true);
+    }
+
+    private void RouteValueInternal(Vector3 worldPosition, float value, float ageSeconds, bool useAge)
+    {
         if (feedSelectedSensorToAllMethods)
         {
-            if (spaceTimeCubeHeatmap != null) spaceTimeCubeHeatmap.PaintAtWorldPosition(worldPosition, value);
-            if (bubbleGrid != null) bubbleGrid.AddNoiseSample(worldPosition, value);
-            if (spatioTemporalTrail != null) spatioTemporalTrail.AddSample(worldPosition, value);
-            if (lineGraph != null) lineGraph.AddCO2Sample(worldPosition, value);
+            if (spaceTimeCubeHeatmap != null)
+            {
+                if (useAge) spaceTimeCubeHeatmap.PaintAtWorldPositionWithAge(worldPosition, value, ageSeconds);
+                else spaceTimeCubeHeatmap.PaintAtWorldPosition(worldPosition, value);
+            }
+
+            if (bubbleGrid != null)
+            {
+                if (useAge) bubbleGrid.AddNoiseSampleWithAge(worldPosition, value, ageSeconds);
+                else bubbleGrid.AddNoiseSample(worldPosition, value);
+            }
+
+            if (spatioTemporalTrail != null)
+            {
+                if (useAge) spatioTemporalTrail.AddSampleWithAge(worldPosition, value, ageSeconds);
+                else spatioTemporalTrail.AddSample(worldPosition, value);
+            }
+
+            if (lineGraph != null)
+            {
+                if (useAge) lineGraph.AddCO2SampleWithAge(worldPosition, value, ageSeconds);
+                else lineGraph.AddCO2Sample(worldPosition, value);
+            }
+
             return;
         }
 
@@ -320,21 +561,38 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
             : SwitcherSensor.VisualizationMethod.SpaceTimeCubes;
 
         if (method == SwitcherSensor.VisualizationMethod.SpaceTimeCubes && spaceTimeCubeHeatmap != null)
-            spaceTimeCubeHeatmap.PaintAtWorldPosition(worldPosition, value);
+        {
+            if (useAge) spaceTimeCubeHeatmap.PaintAtWorldPositionWithAge(worldPosition, value, ageSeconds);
+            else spaceTimeCubeHeatmap.PaintAtWorldPosition(worldPosition, value);
+        }
         else if (method == SwitcherSensor.VisualizationMethod.BubbleGrid && bubbleGrid != null)
-            bubbleGrid.AddNoiseSample(worldPosition, value);
+        {
+            if (useAge) bubbleGrid.AddNoiseSampleWithAge(worldPosition, value, ageSeconds);
+            else bubbleGrid.AddNoiseSample(worldPosition, value);
+        }
         else if (method == SwitcherSensor.VisualizationMethod.SpatioTemporalTrail && spatioTemporalTrail != null)
-            spatioTemporalTrail.AddSample(worldPosition, value);
+        {
+            if (useAge) spatioTemporalTrail.AddSampleWithAge(worldPosition, value, ageSeconds);
+            else spatioTemporalTrail.AddSample(worldPosition, value);
+        }
         else if (method == SwitcherSensor.VisualizationMethod.LineGraph && lineGraph != null)
-            lineGraph.AddCO2Sample(worldPosition, value);
+        {
+            if (useAge) lineGraph.AddCO2SampleWithAge(worldPosition, value, ageSeconds);
+            else lineGraph.AddCO2Sample(worldPosition, value);
+        }
     }
 
-    private void ClearAllMethodHistories()
+    private void ClearAllMethodHistories(bool preserveVisualizationClocks)
     {
-        if (spaceTimeCubeHeatmap != null) spaceTimeCubeHeatmap.ClearHeatmap();
+        // Za replay zadnje minute NE smijemo resetirati interne satove heatmapa i line grapha.
+        // Inače PaintAtWorldPositionWithAge/AddCO2SampleWithAge sve stare uzorke zalijepe na vrijeme 0
+        // i Space-Time Cubes / Line Graph izgledaju kao da nemaju prethodnu minutu.
+        bool resetClock = !preserveVisualizationClocks;
+
+        if (spaceTimeCubeHeatmap != null) spaceTimeCubeHeatmap.ClearHeatmap(resetClock);
         if (bubbleGrid != null) bubbleGrid.ClearBubbles();
         if (spatioTemporalTrail != null) spatioTemporalTrail.ClearTrail();
-        if (lineGraph != null) lineGraph.ClearCO2();
+        if (lineGraph != null) lineGraph.ClearCO2(resetClock);
     }
 
     private Vector3 MapRosToUnity(float rosX, float rosY)
