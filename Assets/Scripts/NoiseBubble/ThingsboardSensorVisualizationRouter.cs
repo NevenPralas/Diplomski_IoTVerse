@@ -44,6 +44,13 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
     [Tooltip("Kad se replay radi zbog promjene A ili B, čiste se runtime historyji metoda, ali se NE resetira interni sat za Space-Time Cubes i Line Graph. Ovo mora ostati uključeno.")]
     [SerializeField] private bool preserveVisualizationClocksDuringReplayClear = true;
 
+    [Header("Line Graph Preservation")]
+    [Tooltip("Ako je uključeno, otvoreni line graphovi se NE zatvaraju kad A sat promijeni atribut dok je B sat na Line Graph metodi. Grafovi ostaju na istim ćelijama i samo se napune historyjem novog atributa.")]
+    [SerializeField] private bool keepOpenLineGraphsWhenSensorChanges = true;
+
+    [Tooltip("Ako je uključeno, nakon replaya se otvoreni line graphovi odmah rebuildaju da prikažu novi atribut i njegovu zadnju minutu.")]
+    [SerializeField] private bool refreshOpenLineGraphsAfterReplay = true;
+
     [Header("Robot Driving")]
     [SerializeField] private bool driveRobotFromThingsBoardXY = true;
     [SerializeField] private Go2SimpleController go2Controller;
@@ -311,31 +318,53 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
             SelectedValueConfig styleConfig = GetStyleConfig(sensorMode);
             ConfigureAllMethodsForSelectedSensor(styleConfig);
 
+            bool lineGraphMethodIsActive = visualizationMethod == SwitcherSensor.VisualizationMethod.LineGraph;
+
+            // Ovo je nova sitna logika koju želiš:
+            // ako si već otvorio line graphove i samo A sat mijenja atribut,
+            // NE zatvaramo grafove. Čistimo samo njihov data history, replayamo novi atribut
+            // i na kraju rebuildamo iste otvorene grafove na istim ćelijama.
+            bool preserveOpenLineGraphsThisChange =
+                keepOpenLineGraphsWhenSensorChanges &&
+                sensorChanged &&
+                !methodChanged &&
+                lineGraphMethodIsActive;
+
             bool shouldClearBeforeReplay = clearVisualizationsWhenSensorChanges && (shouldReplayBecauseSensorChanged || shouldReplayBecauseMethodChanged);
 
             if (shouldClearBeforeReplay)
-                ClearAllMethodHistories(preserveVisualizationClocksDuringReplayClear);
+                ClearAllMethodHistories(preserveVisualizationClocksDuringReplayClear, preserveOpenLineGraphsThisChange);
             else if (sensorChanged && clearVisualizationsWhenSensorChanges)
-                ClearAllMethodHistories(preserveVisualizationClocksDuringReplayClear);
+                ClearAllMethodHistories(preserveVisualizationClocksDuringReplayClear, preserveOpenLineGraphsThisChange);
 
             if (keepPerSensorHistory && (shouldReplayBecauseSensorChanged || shouldReplayBecauseMethodChanged))
             {
                 replayedHistoryThisFrame = ReplaySensorHistory(sensorMode);
 
+                if (preserveOpenLineGraphsThisChange && refreshOpenLineGraphsAfterReplay && lineGraph != null)
+                    lineGraph.RefreshOpenGraphs();
+
                 if (logModeChanges)
                 {
                     Debug.Log(
                         $"Mode changed | Sensor: {lastSensorMode} -> {sensorMode} | Method: {lastVisualizationMethod} -> {visualizationMethod}. " +
-                        $"Replay={(replayedHistoryThisFrame ? "done" : "empty/disabled")}."
+                        $"Replay={(replayedHistoryThisFrame ? "done" : "empty/disabled")}. " +
+                        $"KeepOpenLineGraphs={preserveOpenLineGraphsThisChange}."
                     );
                 }
             }
-            else if (logModeChanges)
+            else
             {
-                Debug.Log(
-                    $"Mode changed | Sensor: {lastSensorMode} -> {sensorMode} | Method: {lastVisualizationMethod} -> {visualizationMethod}. " +
-                    "Replay disabled."
-                );
+                if (preserveOpenLineGraphsThisChange && refreshOpenLineGraphsAfterReplay && lineGraph != null)
+                    lineGraph.RefreshOpenGraphs();
+
+                if (logModeChanges)
+                {
+                    Debug.Log(
+                        $"Mode changed | Sensor: {lastSensorMode} -> {sensorMode} | Method: {lastVisualizationMethod} -> {visualizationMethod}. " +
+                        "Replay disabled."
+                    );
+                }
             }
         }
 
@@ -584,6 +613,11 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
 
     private void ClearAllMethodHistories(bool preserveVisualizationClocks)
     {
+        ClearAllMethodHistories(preserveVisualizationClocks, false);
+    }
+
+    private void ClearAllMethodHistories(bool preserveVisualizationClocks, bool keepOpenLineGraphs)
+    {
         // Za replay zadnje minute NE smijemo resetirati interne satove heatmapa i line grapha.
         // Inače PaintAtWorldPositionWithAge/AddCO2SampleWithAge sve stare uzorke zalijepe na vrijeme 0
         // i Space-Time Cubes / Line Graph izgledaju kao da nemaju prethodnu minutu.
@@ -592,7 +626,13 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
         if (spaceTimeCubeHeatmap != null) spaceTimeCubeHeatmap.ClearHeatmap(resetClock);
         if (bubbleGrid != null) bubbleGrid.ClearBubbles();
         if (spatioTemporalTrail != null) spatioTemporalTrail.ClearTrail();
-        if (lineGraph != null) lineGraph.ClearCO2(resetClock);
+
+        if (lineGraph != null)
+        {
+            // Ako je B = LineGraph i A se promijenio, grafovi ostaju otvoreni.
+            // ClearCO2 tada briše samo podatke/teksturu, ne spušta i ne uništava otvorene grafove.
+            lineGraph.ClearCO2(resetClock, !keepOpenLineGraphs);
+        }
     }
 
     private Vector3 MapRosToUnity(float rosX, float rosY)

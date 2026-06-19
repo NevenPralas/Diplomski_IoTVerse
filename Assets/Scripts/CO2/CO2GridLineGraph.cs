@@ -397,17 +397,37 @@ public class CO2GridLineGraph : MonoBehaviour
 
     public void ClearCO2()
     {
-        ClearCO2(true);
+        ClearCO2(true, true);
     }
 
     public void ClearCO2(bool resetSimulationClock)
     {
+        ClearCO2(resetSimulationClock, true);
+    }
+
+    public void ClearCO2(bool resetSimulationClock, bool closeGraphs)
+    {
         cellHistory.Clear();
         ClearTexture();
-        CloseAllGraphs();
+
+        if (closeGraphs)
+        {
+            CloseAllGraphs();
+        }
+        else
+        {
+            // Namjerno NE zatvaramo otvorene line graphove.
+            // Router će odmah nakon replaya pozvati RefreshOpenGraphs(),
+            // pa će isti otvoreni grafovi prikazati novi atribut i njegovu zadnju minutu.
+        }
 
         if (resetSimulationClock)
             simulationStartTime = Time.time;
+    }
+
+    public void RefreshOpenGraphs()
+    {
+        RebuildAllOpenGraphs();
     }
 
     public bool TryGetCellIndex(Vector3 worldPosition, out int gridX, out int gridY)
