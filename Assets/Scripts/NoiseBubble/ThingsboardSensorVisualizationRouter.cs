@@ -292,7 +292,7 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
     private void ConfigureAllMethodsForSelectedSensor(SelectedValueConfig config)
     {
         if (spaceTimeCubeHeatmap != null)
-            spaceTimeCubeHeatmap.ApplyExternalValueGradient(config.min, config.max, config.low, config.middle, config.high, true);
+            spaceTimeCubeHeatmap.ApplyExternalValueGradient(config.min, config.max, config.low, config.middle, config.high, config.title, config.unit, config.decimals, true);
 
         if (bubbleGrid != null)
             bubbleGrid.ApplyExternalNoiseGradient(config.min, config.max, config.low, config.middle, config.high, true);

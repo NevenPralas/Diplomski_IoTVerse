@@ -277,7 +277,7 @@ public class GridCellCursor : MonoBehaviour
         if (tooltipObject == null || tooltipText == null)
             return;
 
-        tooltipText.text = $"Average Temperature: {averageTemperature:F1} °C";
+        tooltipText.text = heatmap != null ? heatmap.FormatAverageValue(averageTemperature) : $"Average: {averageTemperature:F1}";
 
         Vector3 right = Camera.main != null ? Camera.main.transform.right : Vector3.right;
         Vector3 up = Vector3.up;

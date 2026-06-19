@@ -144,7 +144,7 @@ public class SpaceTimeSliceTooltip : MonoBehaviour
     {
         currentSlice = sliceData;
 
-        tooltipText.text = $"Temperature: {sliceData.Temperature:F1} °C";
+        tooltipText.text = sliceData.FormatValueWithTitle();
 
         Vector3 right = Camera.main != null ? Camera.main.transform.right : Vector3.right;
         Vector3 up = Vector3.up;

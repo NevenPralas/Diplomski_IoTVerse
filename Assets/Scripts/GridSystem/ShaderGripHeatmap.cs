@@ -80,6 +80,19 @@ public class ShaderGridHeatmap : MonoBehaviour
     [Tooltip("Koliko cesto se provjerava treba li obrisati stare celije.")]
     [SerializeField] private float expirationRefreshInterval = 1f;
 
+
+    [Header("Displayed Value Labels")]
+    [Tooltip("Naziv vrijednosti koja se trenutno prikazuje u ovom gridu/stupcu. Router mijenja ovo prema A satu.")]
+    [SerializeField] private string displayedValueTitle = "Temperature";
+
+    [Tooltip("Jedinica vrijednosti koja se trenutno prikazuje, npr. °C, dBA, %, ppm.")]
+    [SerializeField] private string displayedValueUnit = "°C";
+
+    [Tooltip("Broj decimala u tooltipovima i labelama.")]
+    [SerializeField, Range(0, 3)] private int displayedValueDecimals = 1;
+
+    [Tooltip("Prefiks za prosječnu vrijednost na hoveru ćelije.")]
+    [SerializeField] private string averageLabelPrefix = "Average";
     private float expirationTimer = 0f;
 
     private Texture2D heatmapTexture;
@@ -134,6 +147,7 @@ public class ShaderGridHeatmap : MonoBehaviour
         expirationRefreshInterval = Mathf.Max(0.1f, expirationRefreshInterval);
         historyRetentionSeconds = Mathf.Max(cellDataLifetimeSeconds, historyRetentionSeconds);
         averageTemperatureWindowSeconds = Mathf.Max(1f, averageTemperatureWindowSeconds);
+        displayedValueDecimals = Mathf.Clamp(displayedValueDecimals, 0, 3);
 
         if (generateRandomCellsOnStart)
             PaintRandomCells(randomCellsCount, clearBeforeRandomFill);
@@ -477,6 +491,51 @@ public class ShaderGridHeatmap : MonoBehaviour
     }
 
 
+    public void SetDisplayedValueMetadata(string valueTitle, string valueUnit, int valueDecimals)
+    {
+        displayedValueTitle = string.IsNullOrWhiteSpace(valueTitle) ? "Value" : valueTitle.Trim();
+        displayedValueUnit = valueUnit == null ? string.Empty : valueUnit.Trim();
+        displayedValueDecimals = Mathf.Clamp(valueDecimals, 0, 3);
+    }
+
+    public string GetDisplayedValueTitle()
+    {
+        return string.IsNullOrWhiteSpace(displayedValueTitle) ? "Value" : displayedValueTitle;
+    }
+
+    public string GetDisplayedValueUnit()
+    {
+        return displayedValueUnit == null ? string.Empty : displayedValueUnit;
+    }
+
+    public int GetDisplayedValueDecimals()
+    {
+        return Mathf.Clamp(displayedValueDecimals, 0, 3);
+    }
+
+    public string FormatValue(float value)
+    {
+        string number = value.ToString("F" + GetDisplayedValueDecimals());
+        string unit = GetDisplayedValueUnit();
+
+        if (string.IsNullOrWhiteSpace(unit))
+            return number;
+
+        return number + " " + unit;
+    }
+
+    public string FormatValueWithTitle(float value)
+    {
+        return GetDisplayedValueTitle() + ": " + FormatValue(value);
+    }
+
+    public string FormatAverageValue(float value)
+    {
+        string prefix = string.IsNullOrWhiteSpace(averageLabelPrefix) ? "Average" : averageLabelPrefix.Trim();
+        return prefix + " " + GetDisplayedValueTitle() + ": " + FormatValue(value);
+    }
+
+
     public void ApplyExternalValueGradient(
         float minValue,
         float maxValue,
@@ -502,6 +561,22 @@ public class ShaderGridHeatmap : MonoBehaviour
         if (repaintExistingCellsImmediately)
             RefreshTextureFromHistory();
     }
+
+    public void ApplyExternalValueGradient(
+        float minValue,
+        float maxValue,
+        Color lowColor,
+        Color middleColor,
+        Color highColor,
+        string valueTitle,
+        string valueUnit,
+        int valueDecimals,
+        bool repaintExistingCellsImmediately = true)
+    {
+        SetDisplayedValueMetadata(valueTitle, valueUnit, valueDecimals);
+        ApplyExternalValueGradient(minValue, maxValue, lowColor, middleColor, highColor, repaintExistingCellsImmediately);
+    }
+
 
     private void RefreshTextureFromHistory()
     {

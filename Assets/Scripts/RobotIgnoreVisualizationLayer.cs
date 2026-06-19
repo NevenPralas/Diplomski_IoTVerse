@@ -1,3 +1,4 @@
+﻿using System.Collections.Generic;
 using UnityEngine;
 
 public class RobotIgnoreVisualizationLayer : MonoBehaviour
@@ -7,21 +8,39 @@ public class RobotIgnoreVisualizationLayer : MonoBehaviour
     [SerializeField] private string visualizationLayerName = "Visualization";
     [SerializeField] private string playerLayerName = "Avatar";
 
+    [Tooltip("Dodatni layeri koje robot treba ignorirati. Ovdje obavezno dodaj CO2Grid ako CO2Grid ima MeshCollider za raycast.")]
+    [SerializeField]
+    private string[] additionalIgnoredLayerNames = new string[]
+    {
+        "CO2Grid"
+    };
+
     [Header("Ignore")]
     [SerializeField] private bool ignoreVisualization = true;
     [SerializeField] private bool ignorePlayer = true;
+    [SerializeField] private bool ignoreAdditionalLayers = true;
+
+    [Header("Runtime Refresh")]
+    [Tooltip("Ako je uključeno, skripta ponovno primjenjuje excludeLayers nakon kratkog vremena. Korisno ako se colliders dodaju kasnije u runtimeu.")]
+    [SerializeField] private bool reapplyAfterStart = true;
+
+    [SerializeField] private float reapplyDelaySeconds = 0.25f;
 
     private void Awake()
     {
         Apply();
     }
 
+    private void Start()
+    {
+        if (reapplyAfterStart)
+            Invoke(nameof(Apply), Mathf.Max(0.01f, reapplyDelaySeconds));
+    }
+
     [ContextMenu("Apply Ignore Layers")]
     public void Apply()
     {
         int robotLayer = LayerMask.NameToLayer(robotLayerName);
-        int visualizationLayer = LayerMask.NameToLayer(visualizationLayerName);
-        int playerLayer = LayerMask.NameToLayer(playerLayerName);
 
         if (robotLayer == -1)
         {
@@ -29,46 +48,60 @@ public class RobotIgnoreVisualizationLayer : MonoBehaviour
             return;
         }
 
-        LayerMask excludeMask = 0;
+        List<int> ignoredLayers = new List<int>();
 
         if (ignoreVisualization)
-        {
-            if (visualizationLayer == -1)
-            {
-                Debug.LogWarning("Visualization layer ne postoji: " + visualizationLayerName);
-            }
-            else
-            {
-                Physics.IgnoreLayerCollision(robotLayer, visualizationLayer, true);
-                excludeMask |= 1 << visualizationLayer;
-            }
-        }
+            TryAddLayer(ignoredLayers, visualizationLayerName, true);
 
         if (ignorePlayer)
+            TryAddLayer(ignoredLayers, playerLayerName, true);
+
+        if (ignoreAdditionalLayers && additionalIgnoredLayerNames != null)
         {
-            if (playerLayer == -1)
-            {
-                Debug.LogWarning("Player layer ne postoji: " + playerLayerName);
-            }
-            else
-            {
-                Physics.IgnoreLayerCollision(robotLayer, playerLayer, true);
-                excludeMask |= 1 << playerLayer;
-            }
+            for (int i = 0; i < additionalIgnoredLayerNames.Length; i++)
+                TryAddLayer(ignoredLayers, additionalIgnoredLayerNames[i], false);
+        }
+
+        LayerMask excludeMask = 0;
+
+        for (int i = 0; i < ignoredLayers.Count; i++)
+        {
+            int ignoredLayer = ignoredLayers[i];
+            Physics.IgnoreLayerCollision(robotLayer, ignoredLayer, true);
+            excludeMask |= 1 << ignoredLayer;
         }
 
         foreach (ArticulationBody body in GetComponentsInChildren<ArticulationBody>(true))
         {
-            body.excludeLayers |= excludeMask;
+            if (body != null)
+                body.excludeLayers |= excludeMask;
         }
 
         foreach (Collider col in GetComponentsInChildren<Collider>(true))
         {
-            col.excludeLayers |= excludeMask;
+            if (col != null)
+                col.excludeLayers |= excludeMask;
         }
 
-        Debug.Log(
-            $"Robot ignore applied. Ignoring Visualization={ignoreVisualization}, Player={ignorePlayer}"
-        );
+        Debug.Log($"Robot ignore applied. Robot={robotLayerName}, ignored mask={excludeMask.value}");
+    }
+
+    private void TryAddLayer(List<int> layers, string layerName, bool warnIfMissing)
+    {
+        if (string.IsNullOrWhiteSpace(layerName))
+            return;
+
+        int layer = LayerMask.NameToLayer(layerName.Trim());
+
+        if (layer == -1)
+        {
+            if (warnIfMissing)
+                Debug.LogWarning("Layer ne postoji: " + layerName);
+
+            return;
+        }
+
+        if (!layers.Contains(layer))
+            layers.Add(layer);
     }
 }

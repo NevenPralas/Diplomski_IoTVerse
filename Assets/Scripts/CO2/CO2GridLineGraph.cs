@@ -168,6 +168,13 @@ public class CO2GridLineGraph : MonoBehaviour
     [SerializeField] private string visualizationLayerName = "Visualization";
     [SerializeField] private bool ensureColliderExists = true;
 
+    [Header("Runtime Graph Collision Safety")]
+    [Tooltip("Runtime canvas/line graph objekti idu na Visualization layer da ih robot može ignorirati.")]
+    [SerializeField] private bool forceRuntimeGraphToVisualizationLayer = true;
+
+    [Tooltip("Uklanja collidere s runtime line graph canvasa. CO2Grid MeshCollider ostaje jer treba za raycast.")]
+    [SerializeField] private bool removeRuntimeGraphColliders = true;
+
     [Header("Debug")]
     [SerializeField] private bool logSamples = false;
     [SerializeField] private bool logClicks = false;
@@ -1024,6 +1031,8 @@ public class CO2GridLineGraph : MonoBehaviour
         CreateLabels(root.transform);
         CreateGraphLine(root.transform, gridX, gridY);
 
+        PrepareRuntimeGraphForPhysics(root);
+
         if (animate)
         {
             root.transform.localScale = Vector3.one * 0.01f;
@@ -1405,6 +1414,29 @@ public class CO2GridLineGraph : MonoBehaviour
         foreach (Transform child in root.transform)
             SetVisualizationLayerRecursively(child.gameObject);
     }
+
+    private void PrepareRuntimeGraphForPhysics(GameObject root)
+    {
+        if (root == null)
+            return;
+
+        if (forceRuntimeGraphToVisualizationLayer)
+            SetVisualizationLayerRecursively(root);
+
+        if (!removeRuntimeGraphColliders)
+            return;
+
+        Collider[] colliders = root.GetComponentsInChildren<Collider>(true);
+
+        for (int i = 0; i < colliders.Length; i++)
+        {
+            if (colliders[i] == null)
+                continue;
+
+            Destroy(colliders[i]);
+        }
+    }
+
 
     private void SetRenderersAndCollidersVisible(GameObject root, bool visible)
     {

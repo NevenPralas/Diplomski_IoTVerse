@@ -381,7 +381,10 @@ public class SpaceTimeCubeManager : MonoBehaviour
                 latestSample.relativeTime,
                 gridX,
                 gridY,
-                secondIndex);
+                secondIndex,
+                heatmap.GetDisplayedValueTitle(),
+                heatmap.GetDisplayedValueUnit(),
+                heatmap.GetDisplayedValueDecimals());
         }
     }
 
@@ -395,7 +398,10 @@ public class SpaceTimeCubeManager : MonoBehaviour
         float relativeTime,
         int gridX,
         int gridY,
-        int secondIndex)
+        int secondIndex,
+        string valueTitle,
+        string valueUnit,
+        int valueDecimals)
     {
         GameObject piece = GameObject.CreatePrimitive(PrimitiveType.Cube);
         piece.name = pieceName;
@@ -413,7 +419,7 @@ public class SpaceTimeCubeManager : MonoBehaviour
         }
 
         SpaceTimeSliceData data = piece.AddComponent<SpaceTimeSliceData>();
-        data.Init(temperature, relativeTime, gridX, gridY, secondIndex);
+        data.Init(temperature, relativeTime, gridX, gridY, secondIndex, valueTitle, valueUnit, valueDecimals);
 
         Renderer renderer = piece.GetComponent<Renderer>();
         renderer.material = CreateRuntimeBandMaterial(color);
