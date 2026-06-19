@@ -53,6 +53,11 @@ public class CO2GridLineGraph : MonoBehaviour
     [Range(2, 3)]
     [SerializeField] private int gradientColorCount = 3;
 
+    [Header("Generic Display Labels")]
+    [SerializeField] private string valueTitle = "CO2";
+    [SerializeField] private string valueUnit = "ppm";
+    [SerializeField] private int valueDecimals = 0;
+
     [Header("Empty / No Data Cell")]
     [SerializeField] private Color emptyCellColor = new Color(0f, 0f, 0f, 0f);
 
@@ -293,6 +298,67 @@ public class CO2GridLineGraph : MonoBehaviour
             if (pair.Value != null && pair.Value.root != null)
                 SetRenderersAndCollidersVisible(pair.Value.root, visualizationVisible);
         }
+    }
+
+    public void ApplyExternalValueGradient(
+        float minValue,
+        float maxValue,
+        Color lowColor,
+        Color middleColor,
+        Color highColor,
+        string title,
+        string unit,
+        int decimals,
+        bool repaintExistingCellsImmediately = true)
+    {
+        minValue = Mathf.Min(minValue, maxValue - 0.01f);
+        maxValue = Mathf.Max(maxValue, minValue + 0.01f);
+
+        lowColor.a = 1f;
+        middleColor.a = 1f;
+        highColor.a = 1f;
+
+        minCO2Ppm = minValue;
+        maxCO2Ppm = maxValue;
+        lowCO2Color = lowColor;
+        middleCO2Color = middleColor;
+        highCO2Color = highColor;
+        gradientColorCount = 3;
+
+        valueTitle = string.IsNullOrWhiteSpace(title) ? "Value" : title;
+        valueUnit = unit ?? "";
+        valueDecimals = Mathf.Clamp(decimals, 0, 3);
+
+        if (repaintExistingCellsImmediately)
+        {
+            RepaintTextureFromHistory();
+            RebuildAllOpenGraphs();
+        }
+    }
+
+    public float GetMinValue()
+    {
+        return minCO2Ppm;
+    }
+
+    public float GetMaxValue()
+    {
+        return maxCO2Ppm;
+    }
+
+    public string GetValueTitle()
+    {
+        return valueTitle;
+    }
+
+    public string GetValueUnit()
+    {
+        return valueUnit;
+    }
+
+    public int GetValueDecimals()
+    {
+        return valueDecimals;
     }
 
     public void AddCO2Sample(Vector3 worldPosition, float co2Ppm)
@@ -620,6 +686,34 @@ public class CO2GridLineGraph : MonoBehaviour
 
         ApplyTexture();
         RebuildAllOpenGraphs();
+    }
+
+    private void RepaintTextureFromHistory()
+    {
+        if (heatmapTexture == null)
+            return;
+
+        ClearTexture();
+
+        foreach (KeyValuePair<Vector2Int, List<CO2Sample>> pair in cellHistory)
+        {
+            Vector2Int cell = pair.Key;
+
+            if (TryGetDisplayedCO2ForCell(cell.x, cell.y, out float value))
+            {
+                Color color = GetColorForCO2(value);
+                heatmapTexture.SetPixel(gridSizeX - 1 - cell.x, gridSizeY - 1 - cell.y, color);
+            }
+        }
+
+        ApplyTexture();
+    }
+
+    private string FormatValue(float value)
+    {
+        string format = "F" + Mathf.Clamp(valueDecimals, 0, 3);
+        string suffix = string.IsNullOrWhiteSpace(valueUnit) ? "" : " " + valueUnit;
+        return value.ToString(format) + suffix;
     }
 
     private Color GetColorForCO2(float co2Ppm)
@@ -986,7 +1080,7 @@ public class CO2GridLineGraph : MonoBehaviour
     {
         CreateText(
             parent,
-            "CO2",
+            valueTitle,
             new Vector3(-graphWidth * 0.5f, graphHeight + 0.09f, -0.03f),
             labelFontSize,
             labelCharacterSize
@@ -1076,7 +1170,7 @@ public class CO2GridLineGraph : MonoBehaviour
         {
             CreateText(
                 parent,
-                "No CO2 data",
+                "No data",
                 new Vector3(-graphWidth * 0.25f, graphHeight * 0.5f, -0.04f),
                 labelFontSize,
                 labelCharacterSize
@@ -1113,7 +1207,7 @@ public class CO2GridLineGraph : MonoBehaviour
         {
             CreateText(
                 parent,
-                "No recent CO2 data",
+                "No recent data",
                 new Vector3(-graphWidth * 0.33f, graphHeight * 0.5f, -0.04f),
                 labelFontSize,
                 labelCharacterSize
@@ -1154,7 +1248,7 @@ public class CO2GridLineGraph : MonoBehaviour
 
         CreateText(
             parent,
-            $"{latest.co2Ppm:F0} ppm",
+            FormatValue(latest.co2Ppm),
             new Vector3(graphWidth * 0.5f + 0.06f, Mathf.Clamp(latestPoint.y, 0f, graphHeight), -0.04f),
             labelFontSize - 4,
             labelCharacterSize * 0.9f,

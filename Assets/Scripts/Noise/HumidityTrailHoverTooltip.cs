@@ -4,16 +4,14 @@ public class HumidityTrailHoverTooltip : MonoBehaviour
 {
     [Header("References")]
     [SerializeField] private SpatioTemporalNoiseTrail humidityTrail;
+    [SerializeField] private SwitcherSensor switcherSensor;
 
     [Tooltip("Transform iz kojeg ide bijeli laser. Koristi isti ray origin koji koristiš za ostale tooltipove.")]
     [SerializeField] private Transform rayOrigin;
 
     [Header("Raycast")]
     [SerializeField] private float rayDistance = 50f;
-
-    [Tooltip("Uključi layer na kojem je HumidityTrailManager, npr. Visualization.")]
     [SerializeField] private LayerMask hoverLayerMask = ~0;
-
     [SerializeField] private bool debugRay = false;
 
     [Header("Tooltip Visual")]
@@ -31,12 +29,28 @@ public class HumidityTrailHoverTooltip : MonoBehaviour
 
     private GameObject tooltipObject;
     private TextMesh tooltipText;
-
     private GameObject markerObject;
     private Renderer markerRenderer;
+    private bool interactionEnabled = true;
+    private bool visualizationVisible = true;
+
+    public void SetInteractionEnabled(bool enabled)
+    {
+        interactionEnabled = enabled;
+        if (!interactionEnabled) HideHover();
+    }
+
+    public void SetVisualizationVisible(bool visible)
+    {
+        visualizationVisible = visible;
+        if (!visualizationVisible) HideHover();
+    }
 
     private void Awake()
     {
+        if (switcherSensor == null)
+            switcherSensor = FindObjectOfType<SwitcherSensor>();
+
         CreateTooltip();
         CreateMarker();
         HideHover();
@@ -44,31 +58,35 @@ public class HumidityTrailHoverTooltip : MonoBehaviour
 
     private void Update()
     {
-        UpdateHover();
-    }
-
-    private void UpdateHover()
-    {
-        if (humidityTrail == null || rayOrigin == null)
+        if (!ShouldAllowHover())
         {
             HideHover();
             return;
         }
 
+        UpdateHover();
+    }
+
+    private bool ShouldAllowHover()
+    {
+        if (!interactionEnabled || !visualizationVisible)
+            return false;
+
+        if (switcherSensor != null && !switcherSensor.IsTrailMethodActive())
+            return false;
+
+        return humidityTrail != null && rayOrigin != null;
+    }
+
+    private void UpdateHover()
+    {
         Vector3 origin = rayOrigin.position;
         Vector3 direction = rayOrigin.forward.normalized;
 
         if (debugRay)
             Debug.DrawRay(origin, direction * rayDistance, Color.white);
 
-        bool hasHit = Physics.Raycast(
-            origin,
-            direction,
-            out RaycastHit hit,
-            rayDistance,
-            hoverLayerMask,
-            QueryTriggerInteraction.Collide
-        );
+        bool hasHit = Physics.Raycast(origin, direction, out RaycastHit hit, rayDistance, hoverLayerMask, QueryTriggerInteraction.Collide);
 
         if (!hasHit || hit.collider == null)
         {
@@ -76,8 +94,7 @@ public class HumidityTrailHoverTooltip : MonoBehaviour
             return;
         }
 
-        SpatioTemporalNoiseTrail hitTrail =
-            hit.collider.GetComponentInParent<SpatioTemporalNoiseTrail>();
+        SpatioTemporalNoiseTrail hitTrail = hit.collider.GetComponentInParent<SpatioTemporalNoiseTrail>();
 
         if (hitTrail == null || hitTrail != humidityTrail)
         {
@@ -99,26 +116,18 @@ public class HumidityTrailHoverTooltip : MonoBehaviour
         if (tooltipObject == null || tooltipText == null)
             return;
 
-        tooltipText.text = $"Humidity: {info.noiseDb:F1} %";
+        tooltipText.text = $"{GetCurrentSensorLabel()}: {FormatValue(info.noiseDb)}";
 
         Vector3 right = Camera.main != null ? Camera.main.transform.right : Vector3.right;
-        Vector3 up = Vector3.up;
+        tooltipObject.transform.position = info.worldPoint + right * tooltipOffsetRight + Vector3.up * tooltipOffsetUp;
 
-        tooltipObject.transform.position =
-            info.worldPoint +
-            right * tooltipOffsetRight +
-            up * tooltipOffsetUp;
-
-        if (!tooltipObject.activeSelf)
-            tooltipObject.SetActive(true);
+        if (!tooltipObject.activeSelf) tooltipObject.SetActive(true);
 
         if (showMarker && markerObject != null)
         {
             markerObject.transform.position = info.worldPoint;
             markerObject.transform.localScale = Vector3.one * markerRadius;
-
-            if (!markerObject.activeSelf)
-                markerObject.SetActive(true);
+            if (!markerObject.activeSelf) markerObject.SetActive(true);
         }
         else if (markerObject != null)
         {
@@ -126,20 +135,42 @@ public class HumidityTrailHoverTooltip : MonoBehaviour
         }
     }
 
+    private string GetCurrentSensorLabel()
+    {
+        if (switcherSensor == null) return "Value";
+        switch (switcherSensor.CurrentSensorMode)
+        {
+            case SwitcherSensor.SensorMode.Temperature: return "Temperature";
+            case SwitcherSensor.SensorMode.Noise: return "Noise";
+            case SwitcherSensor.SensorMode.Humidity: return "Humidity";
+            case SwitcherSensor.SensorMode.AirQuality: return "CO2";
+            default: return "Value";
+        }
+    }
+
+    private string FormatValue(float value)
+    {
+        if (switcherSensor == null) return value.ToString("F1");
+        switch (switcherSensor.CurrentSensorMode)
+        {
+            case SwitcherSensor.SensorMode.Temperature: return value.ToString("F1") + " °C";
+            case SwitcherSensor.SensorMode.Noise: return value.ToString("F1") + " dBA";
+            case SwitcherSensor.SensorMode.Humidity: return value.ToString("F1") + " %";
+            case SwitcherSensor.SensorMode.AirQuality: return value.ToString("F0") + " ppm";
+            default: return value.ToString("F1");
+        }
+    }
+
     private void HideHover()
     {
-        if (tooltipObject != null && tooltipObject.activeSelf)
-            tooltipObject.SetActive(false);
-
-        if (markerObject != null && markerObject.activeSelf)
-            markerObject.SetActive(false);
+        if (tooltipObject != null && tooltipObject.activeSelf) tooltipObject.SetActive(false);
+        if (markerObject != null && markerObject.activeSelf) markerObject.SetActive(false);
     }
 
     private void CreateTooltip()
     {
         tooltipObject = new GameObject("HumidityTrailHoverTooltip");
         tooltipObject.transform.SetParent(transform, true);
-
         tooltipText = tooltipObject.AddComponent<TextMesh>();
         tooltipText.fontSize = fontSize;
         tooltipText.characterSize = characterSize;
@@ -150,11 +181,8 @@ public class HumidityTrailHoverTooltip : MonoBehaviour
         if (labelFont != null)
         {
             tooltipText.font = labelFont;
-
             MeshRenderer renderer = tooltipObject.GetComponent<MeshRenderer>();
-
-            if (renderer != null && labelFont.material != null)
-                renderer.material = labelFont.material;
+            if (renderer != null && labelFont.material != null) renderer.material = labelFont.material;
         }
 
         tooltipObject.AddComponent<WorldLabelBillboard>();
@@ -162,35 +190,26 @@ public class HumidityTrailHoverTooltip : MonoBehaviour
 
     private void CreateMarker()
     {
-        if (!showMarker)
-            return;
+        if (!showMarker) return;
 
         markerObject = GameObject.CreatePrimitive(PrimitiveType.Sphere);
         markerObject.name = "HumidityTrailHoverMarker";
         markerObject.transform.SetParent(transform, true);
 
         Collider col = markerObject.GetComponent<Collider>();
-        if (col != null)
-            Destroy(col);
+        if (col != null) Destroy(col);
 
         markerRenderer = markerObject.GetComponent<Renderer>();
-
         if (markerRenderer != null)
         {
             Material mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
-
-            if (mat.HasProperty("_BaseColor"))
-                mat.SetColor("_BaseColor", markerColor);
-
-            if (mat.HasProperty("_Color"))
-                mat.SetColor("_Color", markerColor);
-
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", markerColor);
+            if (mat.HasProperty("_Color")) mat.SetColor("_Color", markerColor);
             if (mat.HasProperty("_EmissionColor"))
             {
                 mat.EnableKeyword("_EMISSION");
                 mat.SetColor("_EmissionColor", markerColor * 1.5f);
             }
-
             markerRenderer.material = mat;
         }
     }

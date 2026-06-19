@@ -29,24 +29,21 @@ public class NoiseBubbleHoverTooltip : MonoBehaviour
 
     private GameObject tooltipObject;
     private TextMesh tooltipText;
-
     private GameObject markerObject;
     private Renderer markerRenderer;
-
     private bool interactionEnabled = true;
+    private bool visualizationVisible = true;
 
     public void SetInteractionEnabled(bool enabled)
     {
         interactionEnabled = enabled;
-
-        if (!interactionEnabled)
-            HideHover();
+        if (!interactionEnabled) HideHover();
     }
 
     public void SetVisualizationVisible(bool visible)
     {
-        if (!visible)
-            HideHover();
+        visualizationVisible = visible;
+        if (!visualizationVisible) HideHover();
     }
 
     private void Awake()
@@ -72,16 +69,13 @@ public class NoiseBubbleHoverTooltip : MonoBehaviour
 
     private bool ShouldAllowHover()
     {
-        if (!interactionEnabled)
+        if (!interactionEnabled || !visualizationVisible)
             return false;
 
-        if (switcherSensor != null && !switcherSensor.IsNoiseModeActive())
+        if (switcherSensor != null && !switcherSensor.IsBubbleGridMethodActive())
             return false;
 
-        if (noiseBubbleGrid == null || rayOrigin == null)
-            return false;
-
-        return true;
+        return noiseBubbleGrid != null && rayOrigin != null;
     }
 
     private void UpdateHover()
@@ -92,14 +86,7 @@ public class NoiseBubbleHoverTooltip : MonoBehaviour
         if (debugRay)
             Debug.DrawRay(origin, direction * rayDistance, Color.white);
 
-        bool hasHit = Physics.Raycast(
-            origin,
-            direction,
-            out RaycastHit hit,
-            rayDistance,
-            hoverLayerMask,
-            QueryTriggerInteraction.Collide
-        );
+        bool hasHit = Physics.Raycast(origin, direction, out RaycastHit hit, rayDistance, hoverLayerMask, QueryTriggerInteraction.Collide);
 
         if (!hasHit || hit.collider == null)
         {
@@ -107,8 +94,7 @@ public class NoiseBubbleHoverTooltip : MonoBehaviour
             return;
         }
 
-        NoiseBubbleGrid hitGrid =
-            hit.collider.GetComponentInParent<NoiseBubbleGrid>();
+        NoiseBubbleGrid hitGrid = hit.collider.GetComponentInParent<NoiseBubbleGrid>();
 
         if (hitGrid == null || hitGrid != noiseBubbleGrid)
         {
@@ -130,26 +116,18 @@ public class NoiseBubbleHoverTooltip : MonoBehaviour
         if (tooltipObject == null || tooltipText == null)
             return;
 
-        tooltipText.text = $"Noise: {info.noiseDb:F1} dBA";
+        tooltipText.text = $"{GetCurrentSensorLabel()}: {FormatValue(info.noiseDb)}";
 
         Vector3 right = Camera.main != null ? Camera.main.transform.right : Vector3.right;
-        Vector3 up = Vector3.up;
+        tooltipObject.transform.position = info.bubbleCenter + right * tooltipOffsetRight + Vector3.up * tooltipOffsetUp;
 
-        tooltipObject.transform.position =
-            info.bubbleCenter +
-            right * tooltipOffsetRight +
-            up * tooltipOffsetUp;
-
-        if (!tooltipObject.activeSelf)
-            tooltipObject.SetActive(true);
+        if (!tooltipObject.activeSelf) tooltipObject.SetActive(true);
 
         if (showMarker && markerObject != null)
         {
             markerObject.transform.position = info.bubbleCenter;
             markerObject.transform.localScale = Vector3.one * markerRadius;
-
-            if (!markerObject.activeSelf)
-                markerObject.SetActive(true);
+            if (!markerObject.activeSelf) markerObject.SetActive(true);
         }
         else if (markerObject != null)
         {
@@ -157,20 +135,42 @@ public class NoiseBubbleHoverTooltip : MonoBehaviour
         }
     }
 
+    private string GetCurrentSensorLabel()
+    {
+        if (switcherSensor == null) return "Value";
+        switch (switcherSensor.CurrentSensorMode)
+        {
+            case SwitcherSensor.SensorMode.Temperature: return "Temperature";
+            case SwitcherSensor.SensorMode.Noise: return "Noise";
+            case SwitcherSensor.SensorMode.Humidity: return "Humidity";
+            case SwitcherSensor.SensorMode.AirQuality: return "CO2";
+            default: return "Value";
+        }
+    }
+
+    private string FormatValue(float value)
+    {
+        if (switcherSensor == null) return value.ToString("F1");
+        switch (switcherSensor.CurrentSensorMode)
+        {
+            case SwitcherSensor.SensorMode.Temperature: return value.ToString("F1") + " °C";
+            case SwitcherSensor.SensorMode.Noise: return value.ToString("F1") + " dBA";
+            case SwitcherSensor.SensorMode.Humidity: return value.ToString("F1") + " %";
+            case SwitcherSensor.SensorMode.AirQuality: return value.ToString("F0") + " ppm";
+            default: return value.ToString("F1");
+        }
+    }
+
     private void HideHover()
     {
-        if (tooltipObject != null && tooltipObject.activeSelf)
-            tooltipObject.SetActive(false);
-
-        if (markerObject != null && markerObject.activeSelf)
-            markerObject.SetActive(false);
+        if (tooltipObject != null && tooltipObject.activeSelf) tooltipObject.SetActive(false);
+        if (markerObject != null && markerObject.activeSelf) markerObject.SetActive(false);
     }
 
     private void CreateTooltip()
     {
         tooltipObject = new GameObject("NoiseBubbleHoverTooltip");
         tooltipObject.transform.SetParent(transform, true);
-
         tooltipText = tooltipObject.AddComponent<TextMesh>();
         tooltipText.fontSize = fontSize;
         tooltipText.characterSize = characterSize;
@@ -181,11 +181,8 @@ public class NoiseBubbleHoverTooltip : MonoBehaviour
         if (labelFont != null)
         {
             tooltipText.font = labelFont;
-
             MeshRenderer renderer = tooltipObject.GetComponent<MeshRenderer>();
-
-            if (renderer != null && labelFont.material != null)
-                renderer.material = labelFont.material;
+            if (renderer != null && labelFont.material != null) renderer.material = labelFont.material;
         }
 
         tooltipObject.AddComponent<WorldLabelBillboard>();
@@ -193,40 +190,28 @@ public class NoiseBubbleHoverTooltip : MonoBehaviour
 
     private void CreateMarker()
     {
-        if (!showMarker)
-            return;
+        if (!showMarker) return;
 
         markerObject = GameObject.CreatePrimitive(PrimitiveType.Sphere);
         markerObject.name = "NoiseBubbleHoverMarker";
         markerObject.transform.SetParent(transform, true);
 
         Collider col = markerObject.GetComponent<Collider>();
-        if (col != null)
-            Destroy(col);
+        if (col != null) Destroy(col);
 
         markerRenderer = markerObject.GetComponent<Renderer>();
-
         if (markerRenderer != null)
         {
             Shader shader = Shader.Find("Universal Render Pipeline/Lit");
-
-            if (shader == null)
-                shader = Shader.Find("Standard");
-
+            if (shader == null) shader = Shader.Find("Standard");
             Material mat = new Material(shader);
-
-            if (mat.HasProperty("_BaseColor"))
-                mat.SetColor("_BaseColor", markerColor);
-
-            if (mat.HasProperty("_Color"))
-                mat.SetColor("_Color", markerColor);
-
+            if (mat.HasProperty("_BaseColor")) mat.SetColor("_BaseColor", markerColor);
+            if (mat.HasProperty("_Color")) mat.SetColor("_Color", markerColor);
             if (mat.HasProperty("_EmissionColor"))
             {
                 mat.EnableKeyword("_EMISSION");
                 mat.SetColor("_EmissionColor", markerColor * 1.5f);
             }
-
             markerRenderer.material = mat;
         }
     }

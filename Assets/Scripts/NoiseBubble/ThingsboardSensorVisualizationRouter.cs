@@ -17,6 +17,13 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
     [Header("Polling")]
     [SerializeField] private float pollIntervalSeconds = 1f;
 
+    [Header("Mode Source")]
+    [Tooltip("Objekt koji ima novu SwitcherSensor skriptu. A watch bira podatak, B watch bira metodu.")]
+    [SerializeField] private SwitcherSensor switcherSensor;
+
+    [Tooltip("Ako promijeniš podatak na A satu, brišu se postojeći historyji u svim metodama da se ne miješaju različiti atributi.")]
+    [SerializeField] private bool clearVisualizationsWhenSensorChanges = true;
+
     [Header("Robot Driving")]
     [SerializeField] private bool driveRobotFromThingsBoardXY = true;
     [SerializeField] private Go2SimpleController go2Controller;
@@ -41,21 +48,43 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
     [SerializeField] private float unityHeight = 0.5f;
     [SerializeField] private float wallPadding = 0.15f;
 
-    [Header("Temperature Visualization")]
-    [SerializeField] private ShaderGridHeatmap temperatureHeatmap;
-    [SerializeField] private bool routeTemperatureToHeatmap = true;
+    [Header("Visualization Methods")]
+    [SerializeField] private ShaderGridHeatmap spaceTimeCubeHeatmap;
+    [SerializeField] private NoiseBubbleGrid bubbleGrid;
+    [SerializeField] private SpatioTemporalNoiseTrail spatioTemporalTrail;
+    [SerializeField] private CO2GridLineGraph lineGraph;
 
-    [Header("Noise Visualization")]
-    [SerializeField] private NoiseBubbleGrid noiseBubbleGrid;
-    [SerializeField] private bool routeNoiseToBubbles = true;
+    [Header("Route Selected Sensor Into Methods")]
+    [Tooltip("Preporuka: true. Tada se odabrani podatak zapisuje u sve 4 metode, pa kad promijeniš B metodu imaš stanje zadnje minute.")]
+    [SerializeField] private bool feedSelectedSensorToAllMethods = true;
 
-    [Header("Humidity Visualization")]
-    [SerializeField] private SpatioTemporalNoiseTrail humidityTrail;
-    [SerializeField] private bool routeHumidityToTrail = true;
+    [Header("Temperature Style")]
+    [SerializeField] private float minTemperature = 15f;
+    [SerializeField] private float maxTemperature = 30f;
+    [SerializeField] private Color temperatureLowColor = new Color(0.1f, 0.35f, 1f, 1f);
+    [SerializeField] private Color temperatureMiddleColor = new Color(1f, 0.45f, 0.05f, 1f);
+    [SerializeField] private Color temperatureHighColor = new Color(1f, 0.05f, 0.02f, 1f);
 
-    [Header("CO2 / Air Quality Visualization")]
-    [SerializeField] private CO2GridLineGraph co2GridLineGraph;
-    [SerializeField] private bool routeCO2ToGridLineGraph = true;
+    [Header("Noise Style")]
+    [SerializeField] private float minNoiseDb = 0f;
+    [SerializeField] private float maxNoiseDb = 80f;
+    [SerializeField] private Color noiseLowColor = new Color(0.1f, 0.35f, 1f, 1f);
+    [SerializeField] private Color noiseMiddleColor = new Color(1f, 0.45f, 0.05f, 1f);
+    [SerializeField] private Color noiseHighColor = new Color(1f, 0.05f, 0.02f, 1f);
+
+    [Header("Humidity Style")]
+    [SerializeField] private float minHumidityPercent = 10f;
+    [SerializeField] private float maxHumidityPercent = 90f;
+    [SerializeField] private Color humidityLowColor = new Color(0.1f, 0.35f, 1f, 1f);
+    [SerializeField] private Color humidityMiddleColor = new Color(1f, 0.45f, 0.05f, 1f);
+    [SerializeField] private Color humidityHighColor = new Color(1f, 0.05f, 0.02f, 1f);
+
+    [Header("CO2 Style")]
+    [SerializeField] private float minCO2Ppm = 400f;
+    [SerializeField] private float maxCO2Ppm = 2000f;
+    [SerializeField] private Color co2LowColor = new Color(0.1f, 0.75f, 0.25f, 1f);
+    [SerializeField] private Color co2MiddleColor = new Color(1f, 0.70f, 0.05f, 1f);
+    [SerializeField] private Color co2HighColor = new Color(0.9f, 0.05f, 0.02f, 1f);
 
     [Header("Duplicate Protection")]
     [SerializeField] private bool skipDuplicateTelemetryTimestamp = true;
@@ -64,28 +93,36 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
     [SerializeField] private bool logTelemetry = true;
     [SerializeField] private bool logMissingValues = true;
     [SerializeField] private bool logRobotMovement = false;
+    [SerializeField] private bool logModeChanges = true;
 
     private string jwtToken;
     private long lastProcessedTimestamp = -1;
     private Vector3 lastRobotTarget;
     private bool hasLastRobotTarget = false;
+    private SwitcherSensor.SensorMode lastSensorMode = SwitcherSensor.SensorMode.None;
 
-    [Serializable]
-    private class LoginRequest
-    {
-        public string username;
-        public string password;
-    }
+    [Serializable] private class LoginRequest { public string username; public string password; }
+    [Serializable] private class LoginResponse { public string token; public string refreshToken; }
 
-    [Serializable]
-    private class LoginResponse
+    private struct SelectedValueConfig
     {
-        public string token;
-        public string refreshToken;
+        public bool hasValue;
+        public float value;
+        public string title;
+        public string unit;
+        public int decimals;
+        public float min;
+        public float max;
+        public Color low;
+        public Color middle;
+        public Color high;
     }
 
     private void Awake()
     {
+        if (switcherSensor == null)
+            switcherSensor = FindObjectOfType<SwitcherSensor>();
+
         if (go2Controller == null)
             go2Controller = FindObjectOfType<Go2SimpleController>();
 
@@ -118,13 +155,7 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
     private IEnumerator Login()
     {
         string url = $"{baseUrl}/api/auth/login";
-
-        LoginRequest loginData = new LoginRequest
-        {
-            username = username,
-            password = password
-        };
-
+        LoginRequest loginData = new LoginRequest { username = username, password = password };
         string json = JsonUtility.ToJson(loginData);
         byte[] bodyRaw = Encoding.UTF8.GetBytes(json);
 
@@ -143,7 +174,6 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
 
         LoginResponse response = JsonUtility.FromJson<LoginResponse>(request.downloadHandler.text);
         jwtToken = response.token;
-
         Debug.Log("ThingsBoardSensorVisualizationRouter: ThingsBoard login uspješan.");
     }
 
@@ -173,13 +203,7 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
         bool hasHumidity = TryExtractLatestFloat(rawJson, "humidity", out float humidityPercent, out long humidityTs);
         bool hasCO2 = TryExtractLatestFloat(rawJson, "co2", out float co2Ppm, out long co2Ts);
 
-        long newestTs = Math.Max(
-            Math.Max(xTs, yTs),
-            Math.Max(
-                Math.Max(temperatureTs, noiseTs),
-                Math.Max(humidityTs, co2Ts)
-            )
-        );
+        long newestTs = Math.Max(Math.Max(xTs, yTs), Math.Max(Math.Max(temperatureTs, noiseTs), Math.Max(humidityTs, co2Ts)));
 
         if (skipDuplicateTelemetryTimestamp && newestTs > 0 && newestTs == lastProcessedTimestamp)
             yield break;
@@ -207,85 +231,123 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
         if (driveRobotFromThingsBoardXY)
             DriveRobot(worldPosition);
 
-        if (routeTemperatureToHeatmap && hasTemperature)
+        SwitcherSensor.SensorMode sensorMode = switcherSensor != null
+            ? switcherSensor.CurrentSensorMode
+            : SwitcherSensor.SensorMode.Temperature;
+
+        SelectedValueConfig selected = GetSelectedValue(
+            sensorMode,
+            hasTemperature, temperature,
+            hasNoise, noiseDb,
+            hasHumidity, humidityPercent,
+            hasCO2, co2Ppm
+        );
+
+        if (clearVisualizationsWhenSensorChanges && sensorMode != lastSensorMode)
         {
-            if (temperatureHeatmap != null)
-                temperatureHeatmap.PaintAtWorldPosition(worldPosition, temperature);
-            else
-                Debug.LogWarning("ThingsBoardSensorVisualizationRouter: temperatureHeatmap nije postavljen.");
+            ClearAllMethodHistories();
+            if (logModeChanges)
+                Debug.Log($"Sensor changed: {lastSensorMode} -> {sensorMode}. Visualization histories cleared.");
         }
 
-        if (routeNoiseToBubbles && hasNoise)
-        {
-            if (noiseBubbleGrid != null)
-                noiseBubbleGrid.AddNoiseSample(worldPosition, noiseDb);
-            else
-                Debug.LogWarning("ThingsBoardSensorVisualizationRouter: noiseBubbleGrid nije postavljen.");
-        }
+        lastSensorMode = sensorMode;
 
-        if (routeHumidityToTrail && hasHumidity)
+        if (selected.hasValue)
         {
-            if (humidityTrail != null)
-                humidityTrail.AddSample(worldPosition, humidityPercent);
-            else
-                Debug.LogWarning("ThingsBoardSensorVisualizationRouter: humidityTrail nije postavljen.");
-        }
-
-        if (routeCO2ToGridLineGraph && hasCO2)
-        {
-            if (co2GridLineGraph != null)
-                co2GridLineGraph.AddCO2Sample(worldPosition, co2Ppm);
-            else
-                Debug.LogWarning("ThingsBoardSensorVisualizationRouter: co2GridLineGraph nije postavljen.");
+            ConfigureAllMethodsForSelectedSensor(selected);
+            RouteSelectedValue(worldPosition, selected.value);
         }
 
         if (logTelemetry)
         {
             Debug.Log(
-                $"[Sensor Router] ros=({rosX:F2},{rosY:F2}) | unity={worldPosition} | " +
-                $"temperature={(hasTemperature ? temperature.ToString("F2", CultureInfo.InvariantCulture) : "N/A")} °C | " +
-                $"noise={(hasNoise ? noiseDb.ToString("F2", CultureInfo.InvariantCulture) : "N/A")} dBA | " +
-                $"humidity={(hasHumidity ? humidityPercent.ToString("F2", CultureInfo.InvariantCulture) : "N/A")} % | " +
-                $"co2={(hasCO2 ? co2Ppm.ToString("F0", CultureInfo.InvariantCulture) : "N/A")} ppm"
+                $"[Sensor Router] sensor={sensorMode} | method={(switcherSensor != null ? switcherSensor.CurrentVisualizationMethod.ToString() : "N/A")} | " +
+                $"ros=({rosX:F2},{rosY:F2}) | unity={worldPosition} | selected={selected.value.ToString("F2", CultureInfo.InvariantCulture)} {selected.unit}"
             );
         }
     }
 
+    private SelectedValueConfig GetSelectedValue(
+        SwitcherSensor.SensorMode mode,
+        bool hasTemperature, float temperature,
+        bool hasNoise, float noiseDb,
+        bool hasHumidity, float humidityPercent,
+        bool hasCO2, float co2Ppm)
+    {
+        switch (mode)
+        {
+            case SwitcherSensor.SensorMode.Temperature:
+                return new SelectedValueConfig { hasValue = hasTemperature, value = temperature, title = "Temperature", unit = "°C", decimals = 1, min = minTemperature, max = maxTemperature, low = temperatureLowColor, middle = temperatureMiddleColor, high = temperatureHighColor };
+            case SwitcherSensor.SensorMode.Noise:
+                return new SelectedValueConfig { hasValue = hasNoise, value = noiseDb, title = "Noise", unit = "dBA", decimals = 1, min = minNoiseDb, max = maxNoiseDb, low = noiseLowColor, middle = noiseMiddleColor, high = noiseHighColor };
+            case SwitcherSensor.SensorMode.Humidity:
+                return new SelectedValueConfig { hasValue = hasHumidity, value = humidityPercent, title = "Humidity", unit = "%", decimals = 1, min = minHumidityPercent, max = maxHumidityPercent, low = humidityLowColor, middle = humidityMiddleColor, high = humidityHighColor };
+            case SwitcherSensor.SensorMode.AirQuality:
+                return new SelectedValueConfig { hasValue = hasCO2, value = co2Ppm, title = "CO2", unit = "ppm", decimals = 0, min = minCO2Ppm, max = maxCO2Ppm, low = co2LowColor, middle = co2MiddleColor, high = co2HighColor };
+            default:
+                return new SelectedValueConfig { hasValue = false };
+        }
+    }
+
+    private void ConfigureAllMethodsForSelectedSensor(SelectedValueConfig config)
+    {
+        if (spaceTimeCubeHeatmap != null)
+            spaceTimeCubeHeatmap.ApplyExternalValueGradient(config.min, config.max, config.low, config.middle, config.high, true);
+
+        if (bubbleGrid != null)
+            bubbleGrid.ApplyExternalNoiseGradient(config.min, config.max, config.low, config.middle, config.high, true);
+
+        if (spatioTemporalTrail != null)
+            spatioTemporalTrail.ApplyExternalValueGradient(config.min, config.max, config.low, config.middle, config.high, true);
+
+        if (lineGraph != null)
+            lineGraph.ApplyExternalValueGradient(config.min, config.max, config.low, config.middle, config.high, config.title, config.unit, config.decimals, true);
+    }
+
+    private void RouteSelectedValue(Vector3 worldPosition, float value)
+    {
+        if (feedSelectedSensorToAllMethods)
+        {
+            if (spaceTimeCubeHeatmap != null) spaceTimeCubeHeatmap.PaintAtWorldPosition(worldPosition, value);
+            if (bubbleGrid != null) bubbleGrid.AddNoiseSample(worldPosition, value);
+            if (spatioTemporalTrail != null) spatioTemporalTrail.AddSample(worldPosition, value);
+            if (lineGraph != null) lineGraph.AddCO2Sample(worldPosition, value);
+            return;
+        }
+
+        SwitcherSensor.VisualizationMethod method = switcherSensor != null
+            ? switcherSensor.CurrentVisualizationMethod
+            : SwitcherSensor.VisualizationMethod.SpaceTimeCubes;
+
+        if (method == SwitcherSensor.VisualizationMethod.SpaceTimeCubes && spaceTimeCubeHeatmap != null)
+            spaceTimeCubeHeatmap.PaintAtWorldPosition(worldPosition, value);
+        else if (method == SwitcherSensor.VisualizationMethod.BubbleGrid && bubbleGrid != null)
+            bubbleGrid.AddNoiseSample(worldPosition, value);
+        else if (method == SwitcherSensor.VisualizationMethod.SpatioTemporalTrail && spatioTemporalTrail != null)
+            spatioTemporalTrail.AddSample(worldPosition, value);
+        else if (method == SwitcherSensor.VisualizationMethod.LineGraph && lineGraph != null)
+            lineGraph.AddCO2Sample(worldPosition, value);
+    }
+
+    private void ClearAllMethodHistories()
+    {
+        if (spaceTimeCubeHeatmap != null) spaceTimeCubeHeatmap.ClearHeatmap();
+        if (bubbleGrid != null) bubbleGrid.ClearBubbles();
+        if (spatioTemporalTrail != null) spatioTemporalTrail.ClearTrail();
+        if (lineGraph != null) lineGraph.ClearCO2();
+    }
+
     private Vector3 MapRosToUnity(float rosX, float rosY)
     {
-        float mappedX = MapAroundReference(
-            rosX,
-            rosMinX,
-            rosMaxX,
-            rosReferenceX,
-            unityMinX + wallPadding,
-            unityMaxX - wallPadding,
-            unityCenterX
-        );
-
-        float mappedZ = MapAroundReference(
-            rosY,
-            rosMinY,
-            rosMaxY,
-            rosReferenceY,
-            unityMinZ + wallPadding,
-            unityMaxZ - wallPadding,
-            unityCenterZ
-        );
-
-        Vector3 mappedPosition = new Vector3(mappedX, unityHeight, mappedZ);
-        return ClampToRoom(mappedPosition);
+        float mappedX = MapAroundReference(rosX, rosMinX, rosMaxX, rosReferenceX, unityMinX + wallPadding, unityMaxX - wallPadding, unityCenterX);
+        float mappedZ = MapAroundReference(rosY, rosMinY, rosMaxY, rosReferenceY, unityMinZ + wallPadding, unityMaxZ - wallPadding, unityCenterZ);
+        return ClampToRoom(new Vector3(mappedX, unityHeight, mappedZ));
     }
 
     private void DriveRobot(Vector3 targetPosition)
     {
-        if (hasLastRobotTarget)
-        {
-            float distance = Vector3.Distance(lastRobotTarget, targetPosition);
-
-            if (distance < minimumTargetChangeDistance)
-                return;
-        }
+        if (hasLastRobotTarget && Vector3.Distance(lastRobotTarget, targetPosition) < minimumTargetChangeDistance)
+            return;
 
         lastRobotTarget = targetPosition;
         hasLastRobotTarget = true;
@@ -293,51 +355,30 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
         if (go2Controller != null)
         {
             go2Controller.SetNavigationTarget(targetPosition);
-
-            if (logRobotMovement)
-                Debug.Log($"Router driving Go2SimpleController to {targetPosition}");
-
+            if (logRobotMovement) Debug.Log($"Router driving Go2SimpleController to {targetPosition}");
             return;
         }
 
         if (fallbackRobotTransform != null)
         {
             fallbackRobotTransform.position = targetPosition;
-
-            if (logRobotMovement)
-                Debug.Log($"Router directly moving fallbackRobotTransform to {targetPosition}");
-
+            if (logRobotMovement) Debug.Log($"Router directly moving fallbackRobotTransform to {targetPosition}");
             return;
         }
 
         Debug.LogWarning("ThingsBoardSensorVisualizationRouter: driveRobotFromThingsBoardXY je uključen, ali nema Go2SimpleController ni fallbackRobotTransform.");
     }
 
-    private float MapAroundReference(
-        float value,
-        float sourceMin,
-        float sourceMax,
-        float sourceReference,
-        float targetMin,
-        float targetMax,
-        float targetCenter)
+    private float MapAroundReference(float value, float sourceMin, float sourceMax, float sourceReference, float targetMin, float targetMax, float targetCenter)
     {
-        float negativeSourceRange = Mathf.Max(0.0001f, sourceReference - sourceMin);
-        float positiveSourceRange = Mathf.Max(0.0001f, sourceMax - sourceReference);
+        float sourceHalfRange = Mathf.Max(Mathf.Abs(sourceMax - sourceReference), Mathf.Abs(sourceReference - sourceMin));
+        float targetHalfRange = Mathf.Min(Mathf.Abs(targetMax - targetCenter), Mathf.Abs(targetCenter - targetMin));
 
-        float negativeTargetRange = Mathf.Max(0.0001f, targetCenter - targetMin);
-        float positiveTargetRange = Mathf.Max(0.0001f, targetMax - targetCenter);
+        if (sourceHalfRange <= 0.0001f)
+            return targetCenter;
 
-        if (value < sourceReference)
-        {
-            float t = Mathf.InverseLerp(sourceReference, sourceReference - negativeSourceRange, value);
-            return Mathf.Lerp(targetCenter, targetCenter - negativeTargetRange, t);
-        }
-        else
-        {
-            float t = Mathf.InverseLerp(sourceReference, sourceReference + positiveSourceRange, value);
-            return Mathf.Lerp(targetCenter, targetCenter + positiveTargetRange, t);
-        }
+        float normalizedOffset = (value - sourceReference) / sourceHalfRange;
+        return targetCenter + normalizedOffset * targetHalfRange;
     }
 
     private Vector3 ClampToRoom(Vector3 position)
@@ -345,7 +386,6 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
         position.x = Mathf.Clamp(position.x, unityMinX + wallPadding, unityMaxX - wallPadding);
         position.z = Mathf.Clamp(position.z, unityMinZ + wallPadding, unityMaxZ - wallPadding);
         position.y = unityHeight;
-
         return position;
     }
 
@@ -354,47 +394,14 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
         value = 0f;
         timestamp = -1;
 
-        if (string.IsNullOrEmpty(json) || string.IsNullOrEmpty(key))
+        string escapedKey = Regex.Escape(key);
+        string pattern = $"\\\"{escapedKey}\\\"\\s*:\\s*\\[\\s*{{\\s*\\\"ts\\\"\\s*:\\s*(\\d+)\\s*,\\s*\\\"value\\\"\\s*:\\s*\\\"?([^\\\"}}]+)\\\"?";
+        Match match = Regex.Match(json, pattern);
+
+        if (!match.Success)
             return false;
 
-        string escapedKey = Regex.Escape(key);
-
-        string quotedPattern =
-            $"\"{escapedKey}\"\\s*:\\s*\\[\\s*\\{{\\s*\"ts\"\\s*:\\s*(\\d+)\\s*,\\s*\"value\"\\s*:\\s*\"([^\"]*)\"\\s*\\}}\\s*\\]";
-
-        Match quotedMatch = Regex.Match(json, quotedPattern);
-
-        if (quotedMatch.Success)
-        {
-            long.TryParse(quotedMatch.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out timestamp);
-
-            return float.TryParse(
-                quotedMatch.Groups[2].Value,
-                NumberStyles.Float,
-                CultureInfo.InvariantCulture,
-                out value
-            );
-        }
-
-        string unquotedPattern =
-            $"\"{escapedKey}\"\\s*:\\s*\\[\\s*\\{{\\s*\"ts\"\\s*:\\s*(\\d+)\\s*,\\s*\"value\"\\s*:\\s*([^,\\}}\\s]+)\\s*\\}}\\s*\\]";
-
-        Match unquotedMatch = Regex.Match(json, unquotedPattern);
-
-        if (unquotedMatch.Success)
-        {
-            long.TryParse(unquotedMatch.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out timestamp);
-
-            string rawValue = unquotedMatch.Groups[2].Value.Trim().Trim('"');
-
-            return float.TryParse(
-                rawValue,
-                NumberStyles.Float,
-                CultureInfo.InvariantCulture,
-                out value
-            );
-        }
-
-        return false;
+        long.TryParse(match.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out timestamp);
+        return float.TryParse(match.Groups[2].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
     }
 }

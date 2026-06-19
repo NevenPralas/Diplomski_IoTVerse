@@ -213,19 +213,19 @@ public class Watch2GradientDisplay : MonoBehaviour
         if (switcherSensor == null)
             return GradientMode.None;
 
-        if (IsIconGreen(switcherSensor.temperatureIcon))
-            return GradientMode.Temperature;
-
-        if (IsIconGreen(switcherSensor.megaphoneIcon))
-            return GradientMode.Noise;
-
-        if (IsIconGreen(switcherSensor.humidityIcon))
-            return GradientMode.Humidity;
-
-        if (IsIconGreen(switcherSensor.co2Icon))
-            return GradientMode.CO2;
-
-        return GradientMode.None;
+        switch (switcherSensor.CurrentSensorMode)
+        {
+            case SwitcherSensor.SensorMode.Temperature:
+                return GradientMode.Temperature;
+            case SwitcherSensor.SensorMode.Noise:
+                return GradientMode.Noise;
+            case SwitcherSensor.SensorMode.Humidity:
+                return GradientMode.Humidity;
+            case SwitcherSensor.SensorMode.AirQuality:
+                return GradientMode.CO2;
+            default:
+                return GradientMode.None;
+        }
     }
 
     private bool IsIconGreen(Image image)

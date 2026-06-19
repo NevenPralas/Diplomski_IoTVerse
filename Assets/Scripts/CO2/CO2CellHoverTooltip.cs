@@ -84,7 +84,7 @@ public class CO2CellHoverTooltip : MonoBehaviour
         if (!interactionEnabled || !visualizationVisible)
             return false;
 
-        if (switcherSensor != null && !switcherSensor.IsAirQualityModeActive())
+        if (switcherSensor != null && !switcherSensor.IsLineGraphMethodActive())
             return false;
 
         if (co2Grid == null)
@@ -193,8 +193,44 @@ public class CO2CellHoverTooltip : MonoBehaviour
 
         Vector3 cellCenter = co2Grid.GetCellCenterWorld(gridX, gridY);
 
-        tooltipText.text = $"Average CO2: {displayedCO2:F0} ppm";
+        tooltipText.text = $"Average {GetCurrentSensorLabel()}: {FormatValue(displayedCO2)}";
         ShowHover(cellCenter);
+    }
+
+
+    private string GetCurrentSensorLabel()
+    {
+        if (switcherSensor == null)
+            return co2Grid != null ? co2Grid.GetValueTitle() : "Value";
+
+        switch (switcherSensor.CurrentSensorMode)
+        {
+            case SwitcherSensor.SensorMode.Temperature: return "Temperature";
+            case SwitcherSensor.SensorMode.Noise: return "Noise";
+            case SwitcherSensor.SensorMode.Humidity: return "Humidity";
+            case SwitcherSensor.SensorMode.AirQuality: return "CO2";
+            default: return "Value";
+        }
+    }
+
+    private string FormatValue(float value)
+    {
+        if (switcherSensor == null)
+        {
+            string unit = co2Grid != null ? co2Grid.GetValueUnit() : "";
+            int decimals = co2Grid != null ? co2Grid.GetValueDecimals() : 1;
+            string suffix = string.IsNullOrWhiteSpace(unit) ? "" : " " + unit;
+            return value.ToString("F" + Mathf.Clamp(decimals, 0, 3)) + suffix;
+        }
+
+        switch (switcherSensor.CurrentSensorMode)
+        {
+            case SwitcherSensor.SensorMode.Temperature: return value.ToString("F1") + " °C";
+            case SwitcherSensor.SensorMode.Noise: return value.ToString("F1") + " dBA";
+            case SwitcherSensor.SensorMode.Humidity: return value.ToString("F1") + " %";
+            case SwitcherSensor.SensorMode.AirQuality: return value.ToString("F0") + " ppm";
+            default: return value.ToString("F1");
+        }
     }
 
     private void ShowHover(Vector3 worldPoint)

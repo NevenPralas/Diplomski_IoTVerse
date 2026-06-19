@@ -476,6 +476,57 @@ public class ShaderGridHeatmap : MonoBehaviour
             cellParticles.ClearAllParticles();
     }
 
+
+    public void ApplyExternalValueGradient(
+        float minValue,
+        float maxValue,
+        Color lowColor,
+        Color middleColor,
+        Color highColor,
+        bool repaintExistingCellsImmediately = true)
+    {
+        minValue = Mathf.Min(minValue, maxValue - 0.01f);
+        maxValue = Mathf.Max(maxValue, minValue + 0.01f);
+
+        lowColor.a = 0.85f;
+        middleColor.a = 0.85f;
+        highColor.a = 0.85f;
+
+        minTemperature = minValue;
+        maxTemperature = maxValue;
+        lowTemperatureColor = lowColor;
+        middleTemperatureColor = middleColor;
+        highTemperatureColor = highColor;
+        gradientColorCount = 3;
+
+        if (repaintExistingCellsImmediately)
+            RefreshTextureFromHistory();
+    }
+
+    private void RefreshTextureFromHistory()
+    {
+        if (heatmapTexture == null)
+            return;
+
+        ClearTexture();
+
+        foreach (KeyValuePair<Vector2Int, List<CellTemperatureSample>> pair in cellHistory)
+        {
+            Vector2Int cell = pair.Key;
+            List<CellTemperatureSample> samples = pair.Value;
+
+            if (samples == null || samples.Count == 0)
+                continue;
+
+            float fallback = samples[samples.Count - 1].temperature;
+            float value = GetDisplayedTemperatureForCell(cell.x, cell.y, fallback);
+            Color color = GetColorForTemperature(value);
+            heatmapTexture.SetPixel(gridSizeX - 1 - cell.x, gridSizeY - 1 - cell.y, color);
+        }
+
+        ApplyTexture();
+    }
+
     public Color GetColorForTemperature(float temperature)
     {
         return GetTemperatureColor(temperature);

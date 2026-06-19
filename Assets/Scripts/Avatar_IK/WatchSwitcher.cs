@@ -1,77 +1,142 @@
-using System.Reflection;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.XR;
 
 public class WatchSwitcher : MonoBehaviour
 {
+    public enum SwitchButton
+    {
+        A_PrimaryButton,
+        B_SecondaryButton
+    }
+
+    [Header("Input")]
+    [Tooltip("Left/sensor watch should use A_PrimaryButton. Right/visualization watch should use B_SecondaryButton.")]
+    [SerializeField] private SwitchButton switchButton = SwitchButton.A_PrimaryButton;
+
+    [Header("Icons / Slots")]
+    [Tooltip("Slot 0. On sensor watch this is Temperature. On visualization watch this is Space-time cubes.")]
     public Image temperatureIcon;
+
+    [Tooltip("Slot 1. On sensor watch this is Noise. On visualization watch this is Bubble grid.")]
     public Image megaphoneIcon;
+
+    [Tooltip("Slot 2. On sensor watch this is Humidity. On visualization watch this is Spatio-temporal trail.")]
     public Image humidityIcon;
+
+    [Tooltip("Slot 3. On sensor watch this is CO2. On visualization watch this is Line graph.")]
     public Image CO2Icon;
 
-    private int currentIndex = 0;
-    private bool wasAPressed = false;
+    [Header("Startup")]
+    [SerializeField] private bool setInitialIconOnStart = true;
+    [Range(0, 3)]
+    [SerializeField] private int startIndex = 0;
 
-    private readonly Color green = new Color(0f, 1f, 0f, 1f);
-    private readonly Color red = new Color(1f, 0f, 0f, 1f);
+    [Header("Colors")]
+    [SerializeField] private Color activeColor = new Color(0f, 1f, 0f, 1f);
+    [SerializeField] private Color inactiveColor = new Color(1f, 0f, 0f, 1f);
+
+    [Header("Debug")]
+    [SerializeField] private bool logSwitches = false;
+
+    private int currentIndex = 0;
+    private bool wasButtonPressed = false;
+
+    public int CurrentIndex => currentIndex;
+    public SwitchButton Button => switchButton;
 
     private void Start()
     {
-        SetActiveIcon(0);
+        currentIndex = Mathf.Clamp(startIndex, 0, 3);
+
+        if (setInitialIconOnStart)
+            SetActiveIcon(currentIndex);
+        else
+            currentIndex = DetectCurrentIndexFromGreenIcon();
     }
 
     private void Update()
     {
         InputDevice rightHand = InputDevices.GetDeviceAtXRNode(XRNode.RightHand);
 
-        if (rightHand.TryGetFeatureValue(CommonUsages.primaryButton, out bool isAPressed))
-        {
-            if (isAPressed && !wasAPressed)
-            {
-                SwitchToNextIcon();
-            }
+        bool isPressed = false;
 
-            wasAPressed = isAPressed;
-        }
+        if (switchButton == SwitchButton.A_PrimaryButton)
+            rightHand.TryGetFeatureValue(CommonUsages.primaryButton, out isPressed);
+        else
+            rightHand.TryGetFeatureValue(CommonUsages.secondaryButton, out isPressed);
+
+        if (isPressed && !wasButtonPressed)
+            SwitchToNextIcon();
+
+        wasButtonPressed = isPressed;
     }
 
-    private void SwitchToNextIcon()
+    public void SwitchToNextIcon()
     {
         currentIndex++;
 
         if (currentIndex > 3)
-        {
             currentIndex = 0;
-        }
 
         SetActiveIcon(currentIndex);
+
+        if (logSwitches)
+            Debug.Log($"WatchSwitcher {name} switched to index {currentIndex} using {switchButton}");
     }
 
-    private void SetActiveIcon(int index)
+    public void SetActiveIcon(int index)
     {
-        temperatureIcon.color = red;
-        megaphoneIcon.color = red;
-        humidityIcon.color = red;
-        CO2Icon.color = red;
+        currentIndex = Mathf.Clamp(index, 0, 3);
 
-        switch (index)
+        SetIconColor(temperatureIcon, inactiveColor);
+        SetIconColor(megaphoneIcon, inactiveColor);
+        SetIconColor(humidityIcon, inactiveColor);
+        SetIconColor(CO2Icon, inactiveColor);
+
+        switch (currentIndex)
         {
             case 0:
-                temperatureIcon.color = green;
+                SetIconColor(temperatureIcon, activeColor);
                 break;
-
             case 1:
-                megaphoneIcon.color = green;
+                SetIconColor(megaphoneIcon, activeColor);
                 break;
-
             case 2:
-                humidityIcon.color = green;
+                SetIconColor(humidityIcon, activeColor);
                 break;
-
             case 3:
-                CO2Icon.color = green;
+                SetIconColor(CO2Icon, activeColor);
                 break;
         }
+    }
+
+    public bool IsIndexActive(int index)
+    {
+        return currentIndex == index;
+    }
+
+    private void SetIconColor(Image icon, Color color)
+    {
+        if (icon != null)
+            icon.color = color;
+    }
+
+    private int DetectCurrentIndexFromGreenIcon()
+    {
+        if (IsIconGreen(temperatureIcon)) return 0;
+        if (IsIconGreen(megaphoneIcon)) return 1;
+        if (IsIconGreen(humidityIcon)) return 2;
+        if (IsIconGreen(CO2Icon)) return 3;
+        return Mathf.Clamp(startIndex, 0, 3);
+    }
+
+    private bool IsIconGreen(Image icon)
+    {
+        if (icon == null)
+            return false;
+
+        Color c = icon.color;
+        return c == Color.green || (c.g > 0.65f && c.r < 0.45f && c.b < 0.45f);
     }
 }
