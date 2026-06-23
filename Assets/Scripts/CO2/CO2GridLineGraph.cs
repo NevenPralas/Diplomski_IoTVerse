@@ -430,6 +430,12 @@ public class CO2GridLineGraph : MonoBehaviour
         RebuildAllOpenGraphs();
     }
 
+    public void RefreshVisualStateFromHistory()
+    {
+        RepaintTextureFromHistory();
+        RebuildAllOpenGraphs();
+    }
+
     public bool TryGetCellIndex(Vector3 worldPosition, out int gridX, out int gridY)
     {
         float localX = worldPosition.x - gridOrigin.x;
@@ -527,6 +533,7 @@ public class CO2GridLineGraph : MonoBehaviour
             if (TryGetAverageCO2ForCell(gridX, gridY, averageWindowSeconds, out float average))
             {
                 displayedCO2 = average;
+                PaintCellVisualOnly(gridX, gridY, displayedCO2, true);
                 return true;
             }
 
@@ -534,6 +541,7 @@ public class CO2GridLineGraph : MonoBehaviour
         }
 
         displayedCO2 = samples[samples.Count - 1].co2Ppm;
+        PaintCellVisualOnly(gridX, gridY, displayedCO2, true);
         return true;
     }
 
@@ -620,6 +628,21 @@ public class CO2GridLineGraph : MonoBehaviour
 
         Color color = GetColorForCO2(displayedValue);
         heatmapTexture.SetPixel(gridSizeX - 1 - gridX, gridSizeY - 1 - gridY, color);
+    }
+
+    private void PaintCellVisualOnly(int gridX, int gridY, float value, bool applyImmediately)
+    {
+        if (heatmapTexture == null)
+            return;
+
+        if (gridX < 0 || gridX >= gridSizeX || gridY < 0 || gridY >= gridSizeY)
+            return;
+
+        Color color = GetColorForCO2(value);
+        heatmapTexture.SetPixel(gridSizeX - 1 - gridX, gridSizeY - 1 - gridY, color);
+
+        if (applyImmediately)
+            ApplyTexture();
     }
 
     private void ClearCellPixel(int gridX, int gridY)
@@ -796,14 +819,40 @@ public class CO2GridLineGraph : MonoBehaviour
         {
             Vector2Int cell = pair.Key;
 
-            if (TryGetDisplayedCO2ForCell(cell.x, cell.y, out float value))
-            {
-                Color color = GetColorForCO2(value);
-                heatmapTexture.SetPixel(gridSizeX - 1 - cell.x, gridSizeY - 1 - cell.y, color);
-            }
+            if (TryGetDisplayedCO2ForCellWithoutPainting(cell.x, cell.y, out float value))
+                PaintCellVisualOnly(cell.x, cell.y, value, false);
         }
 
         ApplyTexture();
+    }
+
+    private bool TryGetDisplayedCO2ForCellWithoutPainting(int gridX, int gridY, out float displayedCO2)
+    {
+        displayedCO2 = 0f;
+
+        Vector2Int key = new Vector2Int(gridX, gridY);
+
+        if (!cellHistory.TryGetValue(key, out List<CO2Sample> samples))
+            return false;
+
+        RemoveExpiredSamplesFromList(samples);
+
+        if (samples.Count == 0)
+            return false;
+
+        if (useAverageCO2ForCellColor)
+        {
+            if (TryGetAverageCO2ForCell(gridX, gridY, averageWindowSeconds, out float average))
+            {
+                displayedCO2 = average;
+                return true;
+            }
+
+            return false;
+        }
+
+        displayedCO2 = samples[samples.Count - 1].co2Ppm;
+        return true;
     }
 
     private string FormatValue(float value)

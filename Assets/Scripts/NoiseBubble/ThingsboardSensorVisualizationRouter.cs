@@ -51,6 +51,10 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
     [Tooltip("Ako je uključeno, nakon replaya se otvoreni line graphovi odmah rebuildaju da prikažu novi atribut i njegovu zadnju minutu.")]
     [SerializeField] private bool refreshOpenLineGraphsAfterReplay = true;
 
+    [Header("Offline / Disconnected Behaviour")]
+    [Tooltip("Ako je uključeno, promjena A/B sata obrađuje se i kad ThingsBoard trenutno ne odgovara ili nema novih telemetry podataka.")]
+    [SerializeField] private bool reactToWatchChangesWithoutTelemetry = true;
+
     [Header("Robot Driving")]
     [SerializeField] private bool driveRobotFromThingsBoardXY = true;
     [SerializeField] private Go2SimpleController go2Controller;
@@ -184,6 +188,26 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
         StartCoroutine(MainLoop());
     }
 
+    private void Update()
+    {
+        if (!reactToWatchChangesWithoutTelemetry)
+            return;
+
+        if (switcherSensor == null)
+            return;
+
+        SwitcherSensor.SensorMode sensorMode = switcherSensor.CurrentSensorMode;
+        SwitcherSensor.VisualizationMethod visualizationMethod = switcherSensor.CurrentVisualizationMethod;
+
+        if (sensorMode == lastSensorMode && visualizationMethod == lastVisualizationMethod)
+            return;
+
+        // Ovo je ključno za prekid komunikacije Unity ↔ ThingsBoard:
+        // A/B satovi i dalje moraju promijeniti metapodatke, očistiti trenutni prikaz
+        // i replayati zadnju minutu iz lokalne memorije, iako novi HTTP response nije stigao.
+        HandleModeChangeAndReplay(sensorMode, visualizationMethod);
+    }
+
     private IEnumerator MainLoop()
     {
         yield return StartCoroutine(Login());
@@ -307,69 +331,7 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
             hasCO2, co2Ppm
         );
 
-        bool sensorChanged = sensorMode != lastSensorMode;
-        bool methodChanged = visualizationMethod != lastVisualizationMethod;
-        bool shouldReplayBecauseSensorChanged = sensorChanged && replayHistoryWhenSensorChanges;
-        bool shouldReplayBecauseMethodChanged = methodChanged && replayHistoryWhenVisualizationMethodChanges;
-        bool replayedHistoryThisFrame = false;
-
-        if (sensorChanged || methodChanged)
-        {
-            SelectedValueConfig styleConfig = GetStyleConfig(sensorMode);
-            ConfigureAllMethodsForSelectedSensor(styleConfig);
-
-            bool lineGraphMethodIsActive = visualizationMethod == SwitcherSensor.VisualizationMethod.LineGraph;
-
-            // Ovo je nova sitna logika koju želiš:
-            // ako si već otvorio line graphove i samo A sat mijenja atribut,
-            // NE zatvaramo grafove. Čistimo samo njihov data history, replayamo novi atribut
-            // i na kraju rebuildamo iste otvorene grafove na istim ćelijama.
-            bool preserveOpenLineGraphsThisChange =
-                keepOpenLineGraphsWhenSensorChanges &&
-                sensorChanged &&
-                !methodChanged &&
-                lineGraphMethodIsActive;
-
-            bool shouldClearBeforeReplay = clearVisualizationsWhenSensorChanges && (shouldReplayBecauseSensorChanged || shouldReplayBecauseMethodChanged);
-
-            if (shouldClearBeforeReplay)
-                ClearAllMethodHistories(preserveVisualizationClocksDuringReplayClear, preserveOpenLineGraphsThisChange);
-            else if (sensorChanged && clearVisualizationsWhenSensorChanges)
-                ClearAllMethodHistories(preserveVisualizationClocksDuringReplayClear, preserveOpenLineGraphsThisChange);
-
-            if (keepPerSensorHistory && (shouldReplayBecauseSensorChanged || shouldReplayBecauseMethodChanged))
-            {
-                replayedHistoryThisFrame = ReplaySensorHistory(sensorMode);
-
-                if (preserveOpenLineGraphsThisChange && refreshOpenLineGraphsAfterReplay && lineGraph != null)
-                    lineGraph.RefreshOpenGraphs();
-
-                if (logModeChanges)
-                {
-                    Debug.Log(
-                        $"Mode changed | Sensor: {lastSensorMode} -> {sensorMode} | Method: {lastVisualizationMethod} -> {visualizationMethod}. " +
-                        $"Replay={(replayedHistoryThisFrame ? "done" : "empty/disabled")}. " +
-                        $"KeepOpenLineGraphs={preserveOpenLineGraphsThisChange}."
-                    );
-                }
-            }
-            else
-            {
-                if (preserveOpenLineGraphsThisChange && refreshOpenLineGraphsAfterReplay && lineGraph != null)
-                    lineGraph.RefreshOpenGraphs();
-
-                if (logModeChanges)
-                {
-                    Debug.Log(
-                        $"Mode changed | Sensor: {lastSensorMode} -> {sensorMode} | Method: {lastVisualizationMethod} -> {visualizationMethod}. " +
-                        "Replay disabled."
-                    );
-                }
-            }
-        }
-
-        lastSensorMode = sensorMode;
-        lastVisualizationMethod = visualizationMethod;
+        bool replayedHistoryThisFrame = HandleModeChangeAndReplay(sensorMode, visualizationMethod);
 
         if (selected.hasValue)
         {
@@ -386,6 +348,71 @@ public class ThingsBoardSensorVisualizationRouter : MonoBehaviour
                 $"ros=({rosX:F2},{rosY:F2}) | unity={worldPosition} | selected={(selected.hasValue ? selected.value.ToString("F2", CultureInfo.InvariantCulture) : "NO_VALUE")} {selected.unit}"
             );
         }
+    }
+
+    private bool HandleModeChangeAndReplay(
+        SwitcherSensor.SensorMode sensorMode,
+        SwitcherSensor.VisualizationMethod visualizationMethod)
+    {
+        bool sensorChanged = sensorMode != lastSensorMode;
+        bool methodChanged = visualizationMethod != lastVisualizationMethod;
+
+        if (!sensorChanged && !methodChanged)
+            return false;
+
+        bool shouldReplayBecauseSensorChanged = sensorChanged && replayHistoryWhenSensorChanges;
+        bool shouldReplayBecauseMethodChanged = methodChanged && replayHistoryWhenVisualizationMethodChanges;
+        bool shouldReplay = shouldReplayBecauseSensorChanged || shouldReplayBecauseMethodChanged;
+
+        SelectedValueConfig styleConfig = GetStyleConfig(sensorMode);
+        ConfigureAllMethodsForSelectedSensor(styleConfig);
+
+        bool lineGraphMethodIsActive = visualizationMethod == SwitcherSensor.VisualizationMethod.LineGraph;
+
+        bool preserveOpenLineGraphsThisChange =
+            keepOpenLineGraphsWhenSensorChanges &&
+            sensorChanged &&
+            !methodChanged &&
+            lineGraphMethodIsActive;
+
+        bool shouldClearBeforeReplay =
+            clearVisualizationsWhenSensorChanges &&
+            (shouldReplayBecauseSensorChanged || shouldReplayBecauseMethodChanged);
+
+        if (shouldClearBeforeReplay)
+            ClearAllMethodHistories(preserveVisualizationClocksDuringReplayClear, preserveOpenLineGraphsThisChange);
+        else if (sensorChanged && clearVisualizationsWhenSensorChanges)
+            ClearAllMethodHistories(preserveVisualizationClocksDuringReplayClear, preserveOpenLineGraphsThisChange);
+
+        bool replayedHistoryThisFrame = false;
+
+        if (keepPerSensorHistory && shouldReplay)
+        {
+            replayedHistoryThisFrame = ReplaySensorHistory(sensorMode);
+        }
+
+        if (lineGraph != null && lineGraphMethodIsActive)
+        {
+            // Bitno za slučaj prekida komunikacije:
+            // ako je line graph imao history, ali je tekstura ćelija slučajno ostala prazna,
+            // forsiramo repaint iz trenutnog historyja.
+            if (refreshOpenLineGraphsAfterReplay || preserveOpenLineGraphsThisChange || replayedHistoryThisFrame)
+                lineGraph.RefreshVisualStateFromHistory();
+        }
+
+        if (logModeChanges)
+        {
+            Debug.Log(
+                $"Mode changed | Sensor: {lastSensorMode} -> {sensorMode} | Method: {lastVisualizationMethod} -> {visualizationMethod}. " +
+                $"Replay={(replayedHistoryThisFrame ? "done" : (shouldReplay ? "empty" : "disabled"))}. " +
+                $"KeepOpenLineGraphs={preserveOpenLineGraphsThisChange}."
+            );
+        }
+
+        lastSensorMode = sensorMode;
+        lastVisualizationMethod = visualizationMethod;
+
+        return replayedHistoryThisFrame;
     }
 
     private void EnsureMemoryBuckets()

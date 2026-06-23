@@ -200,37 +200,18 @@ public class CO2CellHoverTooltip : MonoBehaviour
 
     private string GetCurrentSensorLabel()
     {
-        if (switcherSensor == null)
-            return co2Grid != null ? co2Grid.GetValueTitle() : "Value";
-
-        switch (switcherSensor.CurrentSensorMode)
-        {
-            case SwitcherSensor.SensorMode.Temperature: return "Temperature";
-            case SwitcherSensor.SensorMode.Noise: return "Noise";
-            case SwitcherSensor.SensorMode.Humidity: return "Humidity";
-            case SwitcherSensor.SensorMode.AirQuality: return "CO2";
-            default: return "Value";
-        }
+        // Tooltip line grapha mora čitati metapodatke direktno iz CO2GridLineGraph,
+        // jer B metoda LineGraph sada može prikazivati Temperature/Noise/Humidity/CO2.
+        // Tako se izbjegne situacija da hover kaže jedno, a sam graf još ima staru jedinicu.
+        return co2Grid != null ? co2Grid.GetValueTitle() : "Value";
     }
 
     private string FormatValue(float value)
     {
-        if (switcherSensor == null)
-        {
-            string unit = co2Grid != null ? co2Grid.GetValueUnit() : "";
-            int decimals = co2Grid != null ? co2Grid.GetValueDecimals() : 1;
-            string suffix = string.IsNullOrWhiteSpace(unit) ? "" : " " + unit;
-            return value.ToString("F" + Mathf.Clamp(decimals, 0, 3)) + suffix;
-        }
-
-        switch (switcherSensor.CurrentSensorMode)
-        {
-            case SwitcherSensor.SensorMode.Temperature: return value.ToString("F1") + " °C";
-            case SwitcherSensor.SensorMode.Noise: return value.ToString("F1") + " dBA";
-            case SwitcherSensor.SensorMode.Humidity: return value.ToString("F1") + " %";
-            case SwitcherSensor.SensorMode.AirQuality: return value.ToString("F0") + " ppm";
-            default: return value.ToString("F1");
-        }
+        string unit = co2Grid != null ? co2Grid.GetValueUnit() : "";
+        int decimals = co2Grid != null ? co2Grid.GetValueDecimals() : 1;
+        string suffix = string.IsNullOrWhiteSpace(unit) ? "" : " " + unit;
+        return value.ToString("F" + Mathf.Clamp(decimals, 0, 3)) + suffix;
     }
 
     private void ShowHover(Vector3 worldPoint)
