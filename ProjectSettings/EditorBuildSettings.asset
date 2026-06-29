@@ -6,8 +6,23 @@ EditorBuildSettings:
   serializedVersion: 2
   m_Scenes:
   - enabled: 1
+    path: Assets/Scenes/MainMenu.unity
+    guid: 6ede79206a6dbe04abb005c46aa53794
+  - enabled: 1
     path: Assets/Scenes/GridSystem.unity
     guid: c32130c16a2344c4db6ea6541d637057
+  - enabled: 1
+    path: Assets/Scenes/1ST_PHASE.unity
+    guid: c6a7034c255ae7942bb49253a2543837
+  - enabled: 1
+    path: Assets/Scenes/2ND_PHASE.unity
+    guid: a622d1118f3f5d942b27a89632005c69
+  - enabled: 1
+    path: Assets/Scenes/3RD_PHASE.unity
+    guid: 98363f41246140c4aa749093e43e8f9a
+  - enabled: 1
+    path: Assets/Scenes/4TH_PHASE.unity
+    guid: 7814637035d0d9b48bbb4791333d4ffc
   m_configObjects:
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
     com.unity.xr.arfoundation.simulation_settings: {fileID: 11400000, guid: 9d3e01f459ba458449ac584ef22881c7, type: 2}
