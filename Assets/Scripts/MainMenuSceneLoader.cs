@@ -39,4 +39,9 @@ public class MainMenuSceneLoader : MonoBehaviour
     {
         SceneManager.LoadScene("4TH_PHASE");
     }
+
+    public void LoadMainMenu()
+    {
+        SceneManager.LoadScene("MainMenu");
+    }
 }

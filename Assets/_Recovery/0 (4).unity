@@ -319,7 +319,7 @@ PrefabInstance:
     - target: {fileID: 684304808003530992, guid: 2eec95f41fa8b7b44abec78888e5144e, type: 3}
       propertyPath: 'm_Materials.Array.data[0]'
       value: 
-      objectReference: {fileID: 10754, guid: 0000000000000000f000000000000000, type: 0}
+      objectReference: {fileID: 2100000, guid: 9dfc825aed78fcd4ba02077103263b40, type: 2}
     - target: {fileID: 855927653962616988, guid: 2eec95f41fa8b7b44abec78888e5144e, type: 3}
       propertyPath: 'm_Materials.Array.data[0]'
       value: 
@@ -431,7 +431,7 @@ PrefabInstance:
     - target: {fileID: 4363108248342109450, guid: 2eec95f41fa8b7b44abec78888e5144e, type: 3}
       propertyPath: 'm_Materials.Array.data[0]'
       value: 
-      objectReference: {fileID: 10754, guid: 0000000000000000f000000000000000, type: 0}
+      objectReference: {fileID: 2100000, guid: 9dfc825aed78fcd4ba02077103263b40, type: 2}
     - target: {fileID: 4720152273235042137, guid: 2eec95f41fa8b7b44abec78888e5144e, type: 3}
       propertyPath: 'm_ActiveFontFeatures.Array.data[0]'
       value: 1801810542
@@ -515,11 +515,11 @@ PrefabInstance:
     - target: {fileID: 7474578650324945829, guid: 2eec95f41fa8b7b44abec78888e5144e, type: 3}
       propertyPath: 'm_Materials.Array.data[0]'
       value: 
-      objectReference: {fileID: 10754, guid: 0000000000000000f000000000000000, type: 0}
+      objectReference: {fileID: 2100000, guid: 9dfc825aed78fcd4ba02077103263b40, type: 2}
     - target: {fileID: 7600806654116465204, guid: 2eec95f41fa8b7b44abec78888e5144e, type: 3}
       propertyPath: 'm_Materials.Array.data[0]'
       value: 
-      objectReference: {fileID: 10754, guid: 0000000000000000f000000000000000, type: 0}
+      objectReference: {fileID: 2100000, guid: 9dfc825aed78fcd4ba02077103263b40, type: 2}
     - target: {fileID: 7730489236357064582, guid: 2eec95f41fa8b7b44abec78888e5144e, type: 3}
       propertyPath: 'm_Materials.Array.data[0]'
       value: 
@@ -1592,7 +1592,24 @@ MonoBehaviour:
   baselineGridY: 10
   minTemperature: 18
   maxTemperature: 22
+  lowTemperatureColor: {r: 0.831, g: 0.384, b: 0.102, a: 0.85}
+  middleTemperatureColor: {r: 0.753, g: 0.188, b: 0.188, a: 0.85}
+  highTemperatureColor: {r: 0.478, g: 0.063, b: 0.063, a: 0.85}
+  gradientColorCount: 3
   cellParticles: {fileID: 1415382492}
+  generateRandomCellsOnStart: 0
+  randomCellsCount: 12
+  clearBeforeRandomFill: 1
+  historyRetentionSeconds: 180
+  useAverageTemperatureForCellColor: 1
+  averageTemperatureWindowSeconds: 60
+  removeCellsWithNoRecentSamples: 1
+  cellDataLifetimeSeconds: 60
+  expirationRefreshInterval: 1
+  displayedValueTitle: Temperature
+  displayedValueUnit: "\xB0C"
+  displayedValueDecimals: 1
+  averageLabelPrefix: Average
 --- !u!114 &1415382491
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1693,14 +1710,13 @@ MonoBehaviour:
   verticalOffset: 0.03
   minTemperature: 18
   maxTemperature: 22
+  cellSpawnChance: 0.5
   alphaMin: 0.08
   alphaMax: 0.18
-  emissionMultiplierMin: 0.5
-  emissionMultiplierMax: 1.5
-  sizeMultiplierMin: 0.8
-  sizeMultiplierMax: 1.3
-  speedMultiplierMin: 0.9
-  speedMultiplierMax: 1.1
+  visualizationLayerName: Visualization
+  removeCollidersFromParticles: 1
+  removeRigidbodiesFromParticles: 1
+  disableParticleCollisionModule: 1
 --- !u!1001 &1575607747
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -2020,6 +2036,7 @@ MonoBehaviour:
   username: tenant@thingsboard.org
   password: tenant
   deviceId: 0f757400-1897-11f1-a1d2-e5a5a57c1784
+  go2Controller: {fileID: 0}
   rosMinX: 0
   rosMaxX: 11
   rosMinY: 0
@@ -2034,12 +2051,18 @@ MonoBehaviour:
   unityMaxZ: 2.41
   unityHeight: 0.5
   wallPadding: 0.15
-  smoothMovement: 1
-  smoothSpeed: 5
-  rotateTowardsMovement: 1
-  rotationSpeed: 6
   pollIntervalSeconds: 1
+  minimumTargetChangeDistance: 0.05
   heatmap: {fileID: 1415382490}
+  paintCurrentCellEveryPoll: 1
+  noiseTrail: {fileID: 0}
+  addNoiseTrailSampleEveryPoll: 1
+  logNoiseTelemetry: 1
+  noiseBubbleGrid: {fileID: 0}
+  addNoiseBubbleSampleEveryPoll: 1
+  enablePostureSync: 1
+  standingBodyHeightThreshold: 0.18
+  logPostureSync: 1
 --- !u!114 &1643481196
 MonoBehaviour:
   m_ObjectHideFlags: 0
