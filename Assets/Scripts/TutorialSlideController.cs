@@ -32,6 +32,16 @@ public class TutorialSlideController : MonoBehaviour
     [Header("Slides")]
     [SerializeField] private List<TutorialSlide> slides = new List<TutorialSlide>();
 
+    [Header("Console Screens")]
+    [Tooltip("Primarni console screen. Ovo je console_screen (2). Aktivan je za slajdove 0-14.")]
+    [SerializeField] private GameObject primaryConsoleScreen;
+
+    [Tooltip("Drugi console screen. Ovo je console_screen (5). Aktivan je od slajda 15 nadalje.")]
+    [SerializeField] private GameObject secondaryConsoleScreen;
+
+    [Tooltip("Od kojeg indeksa slajda se prebacuje na drugi console screen. Za 16. slajd ovo treba biti 15.")]
+    [SerializeField] private int secondaryConsoleStartIndex = 15;
+
     [Header("Startup")]
     [SerializeField] private int startSlideIndex = 0;
     [SerializeField] private bool showFirstSlideOnStart = true;
@@ -74,6 +84,8 @@ public class TutorialSlideController : MonoBehaviour
 
         if (showFirstSlideOnStart)
             ShowSlide(currentSlideIndex);
+        else
+            UpdateConsoleScreensForSlide(currentSlideIndex);
     }
 
     private void Update()
@@ -209,8 +221,21 @@ public class TutorialSlideController : MonoBehaviour
         if (slideNumberText != null)
             slideNumberText.text = $"{currentSlideIndex + 1}/{slides.Count}";
 
+        UpdateConsoleScreensForSlide(currentSlideIndex);
+
         if (logSlideChanges)
             Debug.Log($"Tutorial slide changed: {currentSlideIndex + 1}/{slides.Count}");
+    }
+
+    private void UpdateConsoleScreensForSlide(int slideIndex)
+    {
+        bool useSecondaryConsole = slideIndex >= secondaryConsoleStartIndex;
+
+        if (primaryConsoleScreen != null)
+            primaryConsoleScreen.SetActive(!useSecondaryConsole);
+
+        if (secondaryConsoleScreen != null)
+            secondaryConsoleScreen.SetActive(useSecondaryConsole);
     }
 
     private void ApplyImage(Image targetImage, Sprite sprite)
@@ -235,5 +260,7 @@ public class TutorialSlideController : MonoBehaviour
 
         if (slideNumberText != null)
             slideNumberText.text = "0/0";
+
+        UpdateConsoleScreensForSlide(0);
     }
 }
